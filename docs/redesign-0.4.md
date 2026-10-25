@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | D1 | 首层 review 工具 | **安装 superpowers 全套技能**（已装 obra/superpowers 的 14 个缺失技能到 `~/.mirasim/skills/`，含 `requesting-code-review` / `receiving-code-review`）；第一层 review 使用 superpowers 的 review 流程 |
 | D2 | profile 目录备份粒度 | **核心文件白名单**。已完整验证：profile 顶层共 9 项 = 6 个配置文件（全部在白名单）+ `.plugin-manager/`（纯日志）+ `.dsh-market` 的 log.ndjson 与 discovery 缓存 + `package.json.lock`，后 3 项均排除。**未安装插件的处理**：registry 插件恢复时自动 `pnpm install`（现有 `restore.installBundles` + `bundleDelta` 机制已覆盖，无需额外批处理）；`link:`/`file:` 本地插件由 `mergePackageJson` 保留本机可用链接、源机器路径失效时告警提示手工重装。T3 中把「将自动安装 N 个插件包」显示在恢复预览（`bundleDelta.missing` 数据已有，UI 从未展示） |
-| D3 | MCP 连接器与凭证类隐私模块 | `mcpConnector`、`credentials` 为**默认关闭**的可选项；开启时 UI 显示**隐私声明**：该文件可能包含 MCP 服务器访问令牌 / API 密钥，**本插件不读取、不解析、不上传任何此类隐私内容**——仅将文件原样整体加密打包，加密密钥由用户口令派生（scrypt），插件作者与云端均无法解密 |
+| D3 | MCP 连接器与凭证类隐私模块 | `mcpConnector`、`credentials` 为**默认关闭**的可选项；开启时 UI 显示**隐私声明**（0.4.1 按 ocr 审查修正措辞）：此类内容不会被上传到任何第三方——文件在本机读取后整体加密（scrypt），离开设备的只有密文，插件作者与云端均无法解密；凭证文件在本机剔除设备绑定记录后再入包；插件无遥测 |
 | D4 | 开发期部署方式 | **已执行**：DSH profile 的 `@local/dsh-sync` 链接已从 `~/Desktop/dsh-sync-0.3.4` 改为开发目录（原 package.json 已备份至 `trash/`），`pnpm install` 完成；每次改码后完全退出并重启 DSH 即生效 |
 
 ---

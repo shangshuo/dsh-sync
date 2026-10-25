@@ -29,9 +29,9 @@ window.__ModuleLoader__.load({
     ];
 
     const PRIVACY_NOTICE =
-      '该模块的文件可能包含 API 密钥或服务器访问令牌。DSH 同步插件不读取、不解析、不上传任何此类隐私内容：' +
-      '文件只被原样整体打包，用你设置的口令加密（scrypt 派生密钥）后才离开本机——插件作者与云端存储都无法解密。' +
-      '恢复时同样只在解密后原样写回本机。请确保口令足够强，并自行保管好口令。';
+      '该模块的文件可能包含 API 密钥或服务器访问令牌。这些内容不会被上传到任何第三方：文件在本机读取后整体加密（scrypt 派生密钥），' +
+      '离开设备的只有密文——插件作者与云端存储都无法解密。凭证文件会在本机按规则剔除设备绑定记录后再入包（剔除过程不出本机）。' +
+      '恢复时同样只在解密后写回本机。插件本身没有任何遥测或内容上报。请确保口令足够强，并自行保管好口令。';
 
     function describeChar(char) {
       if (char === ' ') return '空格';
@@ -512,8 +512,15 @@ window.__ModuleLoader__.load({
         },
       });
 
-      const switchProfile = (name) => {
+      const switchProfile = (name, event) => {
         if (!name || name === config?.active) return;
+        // 有未保存的修改时不静默切换：就地提示并回弹下拉框，草稿的去向由用户决定
+        // （「保存并继续」或「放弃修改」后再次切换）。
+        if (dirty) {
+          if (event) event.target.value = config?.active ?? '';
+          say('select', 'warn', '当前配置有未保存的修改。请先点「保存并继续」，或点「放弃修改」后再切换。');
+          return;
+        }
         run('select', {
           task: async () => {
             const value = await call('profile.select', { name });
@@ -986,7 +993,7 @@ window.__ModuleLoader__.load({
             { className: 'dshsync-profilebar' },
             h(
               'select',
-              { className: 'dshsync-input dshsync-select', value: config?.active ?? '', onChange: (event) => switchProfile(event.target.value) },
+              { className: 'dshsync-input dshsync-select', value: config?.active ?? '', onChange: (event) => switchProfile(event.target.value, event) },
               (config?.names ?? []).map((name) => h('option', { key: name, value: name }, name)),
             ),
             h(Button, { onClick: () => setNaming({ mode: 'create', value: '' }), disabled: Boolean(busy) }, '新建'),

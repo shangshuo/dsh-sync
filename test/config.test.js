@@ -125,6 +125,18 @@ test('profile names are validated and updates only touch the named profile', asy
   assert.throws(() => normalizeProfileName('x'.repeat(41)), /不能超过/);
 });
 
+test('required module include.profile is forced back on regardless of stored config', async (t) => {
+  const env = await makeHome();
+  t.after(() => fs.rm(env.root, { recursive: true, force: true }));
+  await saveDocument(env.file, env.store, { version: 2, active: 'X', profiles: [defaultProfile('X')] });
+  await updateProfile(env.file, env.store, 'X', (profile) => {
+    profile.include.profile = false;
+  });
+
+  const doc = await loadDocument(env.file, env.store);
+  assert.equal(activeProfile(doc).include.profile, true, 'profile module is always on after normalization');
+});
+
 test('include keys from v0.3 (skills / agentsSkills) migrate to v0.4 keeping the user choice', async (t) => {
   const env = await makeHome();
   t.after(() => fs.rm(env.root, { recursive: true, force: true }));

@@ -3,12 +3,11 @@
 - **工具**：ocr（OpenCodeReview CLI，provider: CunAI / gpt-6.1-sol，diff-range 模式）
 - **日期**：2026-10-25 ~ 10-26
 - **审查范围**：`git diff 99848d0..HEAD`
-- **执行说明**：ocr 的 LLM 通道在本轮期间持续网络故障（`Post "https://www.cun.ai/v1/messages": EOF / connection reset`，共 3 次会话、31+ 请求重试），最终**部分完成**：
+- **执行说明**：首轮（2026-10-25）ocr 的 LLM 通道持续网络故障，3 次会话部分完成（collect.js 与 live-verify.mjs）。2026-10-26 用户切换 ocr 供应商后补审成功（会话 03388c78，27 请求 26 成功，~86 万 token，3m46s）：**9 个文件全部审查完毕**，仅 `scripts/live-verify.mjs` 因 provider HTTP 400 单文件失败（该文件前轮已审并修复）。以下为全部四轮发现的合并闭环。
   - 会话 6ef9196d（partial）：`lib/collect.js` 完成，3 条发现；
   - 会话 6ec5c088（failed）：8 文件全部网络失败，无产出；
   - 会话 5a0e4de8（aborted，resume 自 6ec5c088）：`locale/zh.json`（0 条）与 `scripts/live-verify.mjs`（3 条）完成，其余 6 文件因 `context canceled` 未完成。
-- **未覆盖声明**：`client.js`、`lib/api.js`、`lib/config.js`、`lib/engine.js`、`lib/tools.js` 及修复后的 `lib/collect.js` 复审未由 ocr 完成。前两者已由第一层（设计落地视角）与第二层（语言/安全规范视角）覆盖，ocr 视角（diff 级回归风险）对这 6 个文件的补审可通过以下命令续跑：
-  `ocr review --from 99848d0 --to HEAD --resume 5a0e4de8-e2be-464a-84f5-ce10a510b9c9`
+- **覆盖状态（2026-10-26 更新）**：切换供应商后补审完成，9 个文件全部覆盖，无未审查文件。
 
 ---
 
@@ -34,13 +33,21 @@
 
 0 发现。
 
-### 未完成复审的文件
+### 补审轮（2026-10-26，会话 03388c78，供应商切换后）
 
-`client.js`、`lib/api.js`、`lib/config.js`、`lib/engine.js`、`lib/tools.js`、修复后的 `lib/collect.js` ——因 LLM 通道故障未完成。第一、二层已覆盖其设计与规范视角；ocr 补审命令见文首。
+| # | 级别 | 位置 | 问题 | 状态 |
+| --- | --- | --- | --- | --- |
+| OCR-7 | bug·medium | client.js:515 | 切换配置无 dirty 离开保护：改了表单未保存就切配置，草稿被 hydrate 静默重置 | ✅ 已修复：dirty 时拒绝切换、下拉框回弹，就地提示"先保存并继续或放弃修改"（复用现有反馈机制，比 window.confirm 更符合 0.4 就地反馈哲学） |
+| OCR-8 | bug·medium | lib/collect.js:153 | 必选模块 `include.profile: false` 可经 sync_configure/API/手改配置进入，UI 显示已勾选但实际未备份 | ✅ 已修复：`completeProfile` 归一化时固化 `profile: true`（必选模块所有消费方一致）；新增覆盖用例 |
+| OCR-9 | security·medium | client.js:31 | 隐私声明"不读取、不解析"与实现不符（collectSnapshot 读取内容、credentials 做 UTF-8 解析脱敏、恢复时合并）——错误安全预期 | ✅ 已修复：措辞改为准确承诺（内容不上传任何第三方 / 本机加密后才离开设备 / 凭证剔除设备记录在本机完成 / 无遥测），client.js + README + 设计文档三处同步 |
+
+补审后复测：36/36 测试全绿 + live-verify 真机验证通过。
 
 ---
 
 ## 复测
 
-- `node --test test/`：**35/35 全绿**（新增嵌套 node_modules round-trip 用例）
+- `node --test test/`：**36/36 全绿**（新增嵌套 node_modules round-trip、必选模块固化用例）
 - `node scripts/live-verify.mjs`：全部通过（push 3972 文件/8.3MB 密文、dryRun、恢复 round-trip、0.3.x 兼容、噪声不落盘、临时目录自动清理）
+
+**第三层结论**：四轮共 9 条发现（1 high + 7 medium + 1 medium-security），全部闭环。
