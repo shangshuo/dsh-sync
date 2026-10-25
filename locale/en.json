@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH Sync",
+    "description": "Back up and restore your whole DSH profile - plugins, plugin settings, skills and MCP servers - to S3-compatible storage, WebDAV or a synced folder, on demand or on a schedule."
+  }
+}

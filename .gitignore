@@ -1,0 +1,28 @@
+# Build output (packaged zips)
+dist/
+
+# Local verification / backup folders produced during testing
+.verify-remote/
+.verify-*/
+
+# Node (the plugin itself has no dependencies, but tests may create these)
+node_modules/
+
+# DSH Sync runtime state (never commit: contains encrypted credentials / keys)
+config.json
+state.json
+secret.key
+sync.log
+backups/
+staging/
+tmp/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp

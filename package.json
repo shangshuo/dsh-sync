@@ -1,0 +1,31 @@
+{
+  "name": "@local/dsh-sync",
+  "version": "0.3.6",
+  "private": true,
+  "type": "module",
+  "description": "Encrypted, scheduled backup and restore of a DSH profile (plugins, plugin settings, skills, MCP servers) to S3-compatible storage, WebDAV or a local folder, with a Settings page.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/**/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}
