@@ -1414,7 +1414,17 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         ctx.slots.inject('settings.section', () =>
-          ctx.slots.register({ name: 'settings.section', id: 'dsh-sync', order: 25, label: t('同步') }, SyncSettings),
+          // label 用 thunk：DSH 在 locale revision 变化时重新求值（resolveSlotLabel），
+          // 语言切换后导航文字即时跟随；<html lang> 由 DSH 实时写入。
+          ctx.slots.register(
+            {
+              name: 'settings.section',
+              id: 'dsh-sync',
+              order: 25,
+              label: () => ((document.documentElement?.lang || navigator.language || 'zh').toLowerCase().startsWith('zh') ? '同步' : 'Sync'),
+            },
+            SyncSettings,
+          ),
         );
       },
     };

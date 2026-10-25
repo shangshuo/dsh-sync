@@ -9,6 +9,7 @@ import { readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { setLang } from './lib/i18n.js';
 import { appendLog, profileState, putProfileState, syncPaths, targetProblems } from './lib/config.js';
 import { t } from './lib/i18n.js';
 import { mountApi } from './lib/api.js';
@@ -140,6 +141,30 @@ function startScheduler(ctx, engine) {
  * @param {any} ctx Cordis context of the `dsh-sync` plugin row.
  */
 export function apply(ctx) {
+  // 跟随 DSH 的语言设置：locale 服务是可选依赖（旧版本没有），存在时读取当前
+  // locale 并订阅切换；agent 工具与所有 Host 侧消息随之双语。设置页另经
+  // 请求头逐请求覆盖（api.js），两者不冲突。
+  if (typeof ctx.get === 'function') {
+    try {
+      const localeService = ctx.get('locale');
+      if (localeService?.getSnapshot) {
+        const applyLocale = () => {
+          try {
+            const id = String(localeService.getSnapshot()?.active ?? '');
+            setLang(id.toLowerCase().startsWith('zh') ? 'zh' : 'en');
+          } catch {
+            /* locale 快照异常不阻塞插件 */
+          }
+        };
+        applyLocale();
+        if (typeof localeService.subscribe === 'function') {
+          ctx.effect(() => localeService.subscribe(applyLocale));
+        }
+      }
+    } catch {
+      /* 无 locale 服务时保持默认中文 */
+    }
+  }
   const resolved = resolvePaths();
   const engine = new SyncEngine({
     dshHome: resolved.dshHome,
