@@ -1,6 +1,8 @@
 /**
  * T4 真机验证脚本（只读真机数据，写入全部落在临时目录）：
- *  1. push：从真实 ~/.dsh 采集（白名单 + 默认模块），加密上传到临时本地目标
+ *  1. push：profileDir 指向真实 ~/.dsh/profiles/desktop 采集（白名单 + 默认模块）；
+ *     dshHome 用临时目录（引擎的 state/config/log 必须不碰真机），因此
+ *     home/ui/skill-manager 等以 dshHome 为来源的模块在本脚本中为空，仅验证链路
  *  2. pull(dryRun)：比对本机与快照
  *  3. pull(confirm)：恢复到真实 profile 的临时副本，逐文件核对
  *  4. 旧格式兼容：手工构造 0.3.x 结构的快照（含噪声条目），新引擎恢复时
@@ -105,12 +107,9 @@ const legacyResult = await restoreEngine.pullFromFile(legacyPath, { dryRun: fals
 console.log(`✓ 0.3.x 快照：写入 ${legacyResult.written}，告警 ${legacyResult.warnings.length} 条`);
 for (const warning of legacyResult.warnings) console.log(`   ⚠ ${warning}`);
 assert.ok(legacyResult.warnings.some((w) => w.includes('不在本机当前的备份范围内') && w.includes('DSH 配置档案')), '噪声跳过告警点名模块');
-assert.equal(
-  await fs.readFile(path.join(copyProfile, 'home', 'cordis.patch.yml').replace(/home$/, 'cordis.patch.yml'), 'utf8').catch(() => null),
-  null,
-);
-// home 模块恢复位置 = dshHome（临时根）下的 cordis.patch.yml
+// home 模块恢复位置 = dshHome（临时根）下的 cordis.patch.yml，且没有落进 profile 副本
 assert.equal(await fs.readFile(path.join(root, 'cordis.patch.yml'), 'utf8'), '- id: legacy\n');
+assert.ok(!(await fs.readFile(path.join(copyProfile, 'cordis.patch.yml'), 'utf8')).includes('legacy'), 'home patch 没有落进 profile 副本');
 assert.equal(JSON.parse(await fs.readFile(path.join(copyProfile, 'package.json'), 'utf8')).name, 'old');
 assert.ok(!copyPatch.includes('old noise'));
 

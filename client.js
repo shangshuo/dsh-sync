@@ -292,6 +292,15 @@ window.__ModuleLoader__.load({
         return value;
       }, [hydrate, loadModules, loadSnapshots]);
 
+      /** 只更新状态与快照列表，不重置表单——供测试/备份/恢复等不改变配置的操作使用，
+       * 避免 hydrate 把未保存的表单草稿（含模块勾选）静默重置。 */
+      const refreshStatus = useCallback(async () => {
+        const value = await call('status');
+        setStatus(value.status);
+        await loadSnapshots().catch(() => {});
+        return value;
+      }, [loadSnapshots]);
+
       useEffect(() => {
         refresh().catch((error) => setNotice({ tone: 'err', text: `读取状态失败：${error.message}` }));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -382,7 +391,7 @@ window.__ModuleLoader__.load({
           // 显式保存模型：测试/备份只针对已保存的配置，表单草稿需先点「保存」或「保存并继续」。
           const result = await call('test');
           say('test', result.ok ? 'ok' : 'err', result.message);
-          await refresh().catch(() => {});
+          await refreshStatus().catch(() => {});
         },
       });
 
@@ -398,7 +407,7 @@ window.__ModuleLoader__.load({
               ? `「${result.profile}」内容没有变化，跳过上传。`
               : `备份完成：${result.stats.files} 个文件，${bytesText(result.bytes)}。${result.pruned > 0 ? `清理了 ${result.pruned} 个旧快照。` : ''}`,
           );
-          await refresh().catch(() => {});
+          await refreshStatus().catch(() => {});
         },
       });
 
@@ -424,7 +433,7 @@ window.__ModuleLoader__.load({
         task: async () => {
           const result = await call('pull', { dryRun: true, snapshot: selectedSnapshot || undefined });
           setPlanSource('remote');
-          setPlan(result);
+          setPlan({ ...result, previewOf: { snapshot: selectedSnapshot } });
           setConfirmRestore(false);
           say(
             'preview',
@@ -454,7 +463,7 @@ window.__ModuleLoader__.load({
         task: async () => {
           const result = await call('pull.file', { path: filePath, dryRun: true });
           setPlanSource('file');
-          setPlan(result);
+          setPlan({ ...result, previewOf: { file: filePath } });
           setConfirmRestore(false);
           say(
             'previewFile',
@@ -467,18 +476,26 @@ window.__ModuleLoader__.load({
       const onApply = run('apply', {
         stageText: '正在备份本机现有文件 → 写入快照内容…',
         task: async () => {
+          // 预览来源一致性校验：无论哪条路径改了快照选择或文件路径（包括快照列表
+          // 刷新后的自动回落），都要重新预览，确认清单与实际落盘内容才可能一致。
+          const previewMatches = planSource === 'file' ? plan?.previewOf?.file === filePath : plan?.previewOf?.snapshot === selectedSnapshot;
+          if (!plan || !previewMatches) {
+            resetPlan();
+            say('apply', 'warn', '预览的来源已变化，请重新预览后再恢复。');
+            return;
+          }
           const result =
             planSource === 'file'
               ? await call('pull.file', { path: filePath, dryRun: false, confirm: true })
               : await call('pull', { dryRun: false, confirm: true, snapshot: selectedSnapshot || undefined });
-          setPlan(result);
+          setPlan({ ...result, previewOf: plan.previewOf });
           setConfirmRestore(false);
           say(
             'apply',
             'ok',
             `已恢复 ${result.written} 个文件${result.backedUp ? `，覆盖前备份了 ${result.backedUp} 个文件` : ''}。${result.restartRequired ? ' 请完全退出 DSH 再打开，让配置生效。' : ''}`,
           );
-          await refresh().catch(() => {});
+          await refreshStatus().catch(() => {});
         },
       });
 
@@ -996,6 +1013,7 @@ window.__ModuleLoader__.load({
                 h(Button, { onClick: () => setNaming(null) }, '取消'),
               )
             : null,
+          h(Feedback, { feedback: feedback.select }),
           h(Feedback, { feedback: feedback.naming }),
           h(Feedback, { feedback: feedback.delete }),
         ),
