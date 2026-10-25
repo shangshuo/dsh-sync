@@ -306,6 +306,12 @@ window.__ModuleLoader__.load({
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
 
+      // 每次切到「恢复 / 导入」页签都重拉快照列表：用户可能刚在「备份」页
+      // 改了目标配置并保存（换机场景的核心路径），列表必须反映当前已保存的目标。
+      useEffect(() => {
+        if (tab === 'restore') loadSnapshots().catch(() => {});
+      }, [tab, loadSnapshots]);
+
       const payload = useMemo(() => {
         const base = {
           passphrase: form.passphrase,
