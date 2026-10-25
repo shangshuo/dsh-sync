@@ -24,6 +24,14 @@ const realProfileDir = path.join(realDshHome, 'profiles', 'desktop');
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dshsync-live-'));
 const remote = path.join(root, 'remote');
+// 任何失败路径（断言抛错、网络异常）都清掉临时目录——里面可能有真实 profile 的完整副本。
+process.on('exit', () => {
+  try {
+    fs.rmSync(root, { recursive: true, force: true });
+  } catch {
+    /* 清理失败不掩盖原始错误 */
+  }
+});
 
 // ---------- 1. push（真实数据，状态文件写入临时 dshHome） ----------
 const profile = defaultProfile('真机验证');
@@ -43,7 +51,14 @@ assert.equal(pushed.skipped, false);
 console.log(`✓ push：${pushed.stats.files} 个文件，${Math.round(pushed.bytes / 1024)} KB 密文`);
 for (const r of pushed.stats.roots) console.log(`   ${r.present ? '✓' : '✗'} ${r.id}: ${r.files} 文件${r.sensitive ? ' [隐私]' : ''}`);
 assert.ok(pushed.stats.roots.find((r) => r.id === 'profile').files <= 6, 'profile 白名单生效');
-assert.ok(!pushed.key.includes('.plugin-manager'), '无日志噪声');
+// 直接解包刚上传的快照验证内容：白名单恰好 6 个 profile 文件，且无插件管理器日志噪声。
+{
+  const pushedEnvelope = await fs.readFile(path.join(remote, 'live', pushed.key));
+  const pushedEntries = unpackContainer(openArchive(pushedEnvelope, PASSPHRASE).plain).entries.map((entry) => entry.path);
+  const profileEntries = pushedEntries.filter((entry) => entry.startsWith('profile/'));
+  assert.equal(profileEntries.length, 6, `profile 白名单恰好 6 文件，实际 ${profileEntries.length}：${JSON.stringify(profileEntries)}`);
+  assert.ok(!pushedEntries.some((entry) => entry.startsWith('profile/.plugin-manager/')), '无插件管理器日志噪声');
+}
 
 // ---------- 2+3. 恢复到真实 profile 的临时副本 ----------
 const copyProfile = path.join(root, 'profiles', 'desktop');
@@ -101,7 +116,11 @@ const legacyEnvelope = sealArchive(packContainer(oldHeader, oldEntries), PASSPHR
 const legacyPath = path.join(root, 'legacy.dshsync');
 await fs.writeFile(legacyPath, legacyEnvelope);
 
-// 副本先打乱 package.json，保证 package.json 有活干
+// 副本先打乱 package.json，保证 package.json 有活干；并放置噪声目标文件，
+// 验证旧快照的噪声条目恢复时不会覆盖本机已有内容。
+const noisePath = path.join(copyProfile, '.plugin-manager', 'logs', 'operation-x', 'git.log');
+await fs.mkdir(path.dirname(noisePath), { recursive: true });
+await fs.writeFile(noisePath, 'local content\n');
 await fs.writeFile(path.join(copyProfile, 'package.json'), '{"name":"drifted","dependencies":{}}');
 const legacyResult = await restoreEngine.pullFromFile(legacyPath, { dryRun: false, confirm: true });
 console.log(`✓ 0.3.x 快照：写入 ${legacyResult.written}，告警 ${legacyResult.warnings.length} 条`);
@@ -111,7 +130,7 @@ assert.ok(legacyResult.warnings.some((w) => w.includes('不在本机当前的备
 assert.equal(await fs.readFile(path.join(root, 'cordis.patch.yml'), 'utf8'), '- id: legacy\n');
 assert.ok(!(await fs.readFile(path.join(copyProfile, 'cordis.patch.yml'), 'utf8')).includes('legacy'), 'home patch 没有落进 profile 副本');
 assert.equal(JSON.parse(await fs.readFile(path.join(copyProfile, 'package.json'), 'utf8')).name, 'old');
-assert.ok(!copyPatch.includes('old noise'));
+assert.equal(await fs.readFile(noisePath, 'utf8'), 'local content\n', '旧快照噪声条目没有写入本机');
 
 await fs.rm(root, { recursive: true, force: true });
 console.log('\n全部真机验证通过 ✓');

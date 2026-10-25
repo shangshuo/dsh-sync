@@ -308,6 +308,41 @@ test('new modules (ui prefs, skill manager, mcp connector, .env) follow their in
   assert.ok(dry.sample.every((item) => !item.path.startsWith('mcp/')), 'entries of a disabled module are not restored');
 });
 
+test('nodeModules module includes nested node_modules (pnpm layout) and enforces archive caps on file roots', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-sync-nested-'));
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const dshHome = path.join(root, 'dsh');
+  const profileDir = path.join(dshHome, 'profiles', 'desktop');
+  const remote = path.join(root, 'remote');
+  await fs.mkdir(path.join(profileDir, 'node_modules', 'pkg', 'node_modules', 'dep'), { recursive: true });
+  await fs.writeFile(path.join(profileDir, 'package.json'), '{"name":"p","dependencies":{}}');
+  await fs.writeFile(path.join(profileDir, 'node_modules', 'pkg', 'index.js'), 'top\n');
+  await fs.writeFile(path.join(profileDir, 'node_modules', 'pkg', 'node_modules', 'dep', 'index.js'), 'nested\n');
+
+  const profile = defaultProfile('嵌套');
+  profile.target = { ...profile.target, kind: 'local', prefix: 'dsh-sync', local: { path: remote } };
+  profile.passphrase = PASSPHRASE;
+  profile.include.nodeModules = true;
+  const store = new SecretStore({ dir: path.join(dshHome, 'dsh-sync') });
+  await saveDocument(path.join(dshHome, 'dsh-sync', 'config.json'), store, { version: 2, active: '嵌套', profiles: [profile] });
+  const engine = new SyncEngine({ dshHome, profileDir, profileName: 'desktop' });
+  engine.store = store;
+
+  const pushed = await engine.push();
+  const latest = JSON.parse(await fs.readFile(path.join(remote, 'dsh-sync', 'latest.json'), 'utf8'));
+  const envelope = await fs.readFile(path.join(remote, 'dsh-sync', latest.snapshot));
+  const paths = unpackContainer(openArchive(envelope, PASSPHRASE).plain).entries.map((entry) => entry.path);
+  assert.ok(paths.includes('node-modules/pkg/index.js'), 'top-level module file is archived');
+  assert.ok(paths.includes('node-modules/pkg/node_modules/dep/index.js'), 'nested node_modules is archived too (0.3 parity)');
+
+  // 文件型 root 也受 maxArchiveMB 约束：把上限压到 0 以下等效 1 字节，package.json 也会超限
+  profile.limits = { ...profile.limits, maxArchiveMB: 0.000001 };
+  await saveDocument(path.join(dshHome, 'dsh-sync', 'config.json'), store, { version: 2, active: '嵌套', profiles: [profile] });
+  await assert.rejects(() => engine.push({ force: true }), /超过.*上限/);
+});
+
 test('legacy 0.3 snapshots with profile/node_modules restore when nodeModules is on', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-sync-legacy-'));
   t.after(async () => {
