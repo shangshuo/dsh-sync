@@ -219,3 +219,91 @@ test('bundle delta is reported and installs run only on apply', async (t) => {
   assert.equal(called, 1);
   assert.equal(applied.installResult.ok, true);
 });
+
+test('profile whitelist packs only core files; logs, caches and locks stay out', async (t) => {
+  const env = await makeInstall();
+  t.after(async () => {
+    await fs.rm(env.root, { recursive: true, force: true });
+  });
+  await fs.writeFile(path.join(env.profileDir, 'cordis.yml'), '[]\n');
+  await fs.writeFile(path.join(env.profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n');
+  await fs.writeFile(path.join(env.profileDir, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+  await fs.mkdir(path.join(env.profileDir, '.dsh-market'), { recursive: true });
+  await fs.writeFile(path.join(env.profileDir, '.dsh-market', 'state.json'), '{"region":"china"}\n');
+  await fs.writeFile(path.join(env.profileDir, '.dsh-market', 'log.ndjson'), '{"ev":"noise"}\n');
+  await fs.writeFile(path.join(env.profileDir, '.dsh-market', 'discovery-compatibility-v1.json'), '{}\n');
+  await fs.mkdir(path.join(env.profileDir, '.plugin-manager', 'logs', 'operation-x'), { recursive: true });
+  await fs.writeFile(path.join(env.profileDir, '.plugin-manager', 'logs', 'operation-x', 'git.log'), 'noise\n');
+  await fs.writeFile(path.join(env.profileDir, 'package.json.lock'), '1700000000000\n');
+
+  await env.engine.push();
+  const latest = JSON.parse(await fs.readFile(path.join(env.remote, 'dsh-sync', 'latest.json'), 'utf8'));
+  const envelope = await fs.readFile(path.join(env.remote, 'dsh-sync', latest.snapshot));
+  const { entries } = unpackContainer(openArchive(envelope, PASSPHRASE).plain);
+  const paths = entries.map((entry) => entry.path);
+
+  for (const wanted of ['profile/package.json', 'profile/cordis.patch.yml', 'profile/cordis.yml', 'profile/pnpm-workspace.yaml', 'profile/pnpm-lock.yaml', 'profile/.dsh-market/state.json']) {
+    assert.ok(paths.includes(wanted), `${wanted} must be archived`);
+  }
+  for (const noise of ['.plugin-manager', 'log.ndjson', 'discovery-compatibility-v1.json', 'package.json.lock']) {
+    assert.ok(!paths.some((entry) => entry.includes(noise)), `${noise} must stay out of the archive`);
+  }
+});
+
+test('new modules (ui prefs, skill manager, mcp connector, .env) follow their include switches', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-sync-modules-'));
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const dshHome = path.join(root, 'dsh');
+  const profileDir = path.join(dshHome, 'profiles', 'desktop');
+  const remote = path.join(root, 'remote');
+  await fs.mkdir(profileDir, { recursive: true });
+  await fs.mkdir(path.join(dshHome, 'skills-manager'), { recursive: true });
+  await fs.mkdir(path.join(dshHome, 'dsh-skill-explorer'), { recursive: true });
+  await fs.mkdir(path.join(dshHome, 'storages'), { recursive: true });
+  await fs.writeFile(path.join(profileDir, 'package.json'), '{"name":"x","dependencies":{}}');
+  await fs.writeFile(path.join(dshHome, '.dshw-size.json'), '{"scale":1.5}\n');
+  await fs.writeFile(path.join(dshHome, 'skills-manager', 'state.json'), '{"version":1}\n');
+  await fs.writeFile(path.join(dshHome, 'dsh-skill-explorer', 'provider-toggles.json'), '{"version":1}\n');
+  await fs.writeFile(path.join(dshHome, 'storages', 'mcp_connector.json'), '{"connections":{}}\n');
+  await fs.writeFile(path.join(dshHome, '.env'), 'SOME_KEY=abc\n');
+
+  const profile = defaultProfile('模块配置');
+  profile.target = { ...profile.target, kind: 'local', prefix: 'dsh-sync', local: { path: remote } };
+  profile.passphrase = PASSPHRASE;
+  profile.include.skillsDsh = false;
+  profile.include.skillsAgents = false;
+  const store = new SecretStore({ dir: path.join(dshHome, 'dsh-sync') });
+  await saveDocument(path.join(dshHome, 'dsh-sync', 'config.json'), store, { version: 2, active: '模块配置', profiles: [profile] });
+  const engine = new SyncEngine({ dshHome, profileDir, profileName: 'desktop' });
+
+  await engine.push();
+  const readPaths = async () => {
+    const latest = JSON.parse(await fs.readFile(path.join(remote, 'dsh-sync', 'latest.json'), 'utf8'));
+    const envelope = await fs.readFile(path.join(remote, 'dsh-sync', latest.snapshot));
+    return unpackContainer(openArchive(envelope, PASSPHRASE).plain).entries.map((entry) => entry.path);
+  };
+  let paths = await readPaths();
+  assert.ok(paths.includes('ui/.dshw-size.json'), 'ui preferences are on by default');
+  assert.ok(paths.includes('skill-manager/skills-manager/state.json'), 'skill-manager settings are on by default');
+  assert.ok(!paths.includes('mcp/mcp_connector.json'), 'mcp connector stays off unless explicitly enabled');
+  assert.ok(!paths.includes('credentials/.env'), '.env stays off unless credentials is enabled');
+
+  profile.include.mcpConnector = true;
+  profile.include.credentials = true;
+  await saveDocument(path.join(dshHome, 'dsh-sync', 'config.json'), store, { version: 2, active: '模块配置', profiles: [profile] });
+  await engine.push({ force: true });
+  paths = await readPaths();
+  assert.ok(paths.includes('mcp/mcp_connector.json'), 'mcp connector is archived once enabled');
+  assert.ok(paths.includes('credentials/.env'), '.env is archived once credentials is enabled');
+
+  profile.include.mcpConnector = false;
+  await saveDocument(path.join(dshHome, 'dsh-sync', 'config.json'), store, { version: 2, active: '模块配置', profiles: [profile] });
+  const dry = await engine.pull({ dryRun: true });
+  assert.ok(
+    dry.warnings.some((warning) => warning.includes('MCP 连接器') && warning.includes('mcp/mcp_connector.json') === false),
+    `disabled-module warning names the module: ${JSON.stringify(dry.warnings)}`,
+  );
+  assert.ok(dry.sample.every((item) => !item.path.startsWith('mcp/')), 'entries of a disabled module are not restored');
+});

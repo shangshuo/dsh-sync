@@ -124,3 +124,32 @@ test('profile names are validated and updates only touch the named profile', asy
   assert.throws(() => normalizeProfileName('a/b'), /不能包含/);
   assert.throws(() => normalizeProfileName('x'.repeat(41)), /不能超过/);
 });
+
+test('include keys from v0.3 (skills / agentsSkills) migrate to v0.4 keeping the user choice', async (t) => {
+  const env = await makeHome();
+  t.after(() => fs.rm(env.root, { recursive: true, force: true }));
+  await fs.writeFile(
+    env.file,
+    JSON.stringify({
+      version: 2,
+      active: '旧配置',
+      profiles: [
+        {
+          name: '旧配置',
+          target: { kind: 'local', prefix: 'dsh-sync', local: { path: 'D:\\backup' } },
+          passphrase: 'Aa1@passphrase',
+          include: { profile: true, skills: false, agentsSkills: true, credentials: false, extraPaths: [] },
+        },
+      ],
+    }),
+  );
+
+  const doc = await loadDocument(env.file, env.store);
+  const include = activeProfile(doc).include;
+  assert.equal(include.skillsDsh, false, 'skills=false is preserved as skillsDsh=false');
+  assert.equal(include.skillsAgents, true, 'agentsSkills=true is preserved as skillsAgents=true');
+  assert.equal(include.skills, undefined, 'legacy key skills is removed');
+  assert.equal(include.agentsSkills, undefined, 'legacy key agentsSkills is removed');
+  assert.equal(include.uiPrefs, true, 'new modules get their defaults');
+  assert.equal(include.mcpConnector, false, 'sensitive modules default to off');
+});
