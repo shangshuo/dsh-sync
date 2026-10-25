@@ -165,6 +165,33 @@ test('API drives status, save, test, push and pull', async (t) => {
   assert.equal(lastOne.value.ok, false);
 });
 
+test('modules.preview reports per-module stats and honors include overrides', async (t) => {
+  const env = await setup();
+  t.after(() => fs.rm(env.root, { recursive: true, force: true }));
+  const headers = { 'x-dsh-sync': '1', 'content-type': 'application/json' };
+
+  const preview = await invoke(env.server, { headers, body: { action: 'modules.preview' } });
+  assert.equal(preview.value.ok, true, JSON.stringify(preview.value));
+  const modules = preview.value.value.modules;
+  const byId = Object.fromEntries(modules.map((module) => [module.id, module]));
+
+  assert.equal(byId.profile.required, true);
+  assert.equal(byId.profile.enabled, true);
+  assert.equal(byId.profile.files, 2, 'whitelisted profile files (package.json + cordis.patch.yml)');
+  assert.equal(byId.mcpConnector.defaultOn, false);
+  assert.equal(byId.mcpConnector.enabled, false, 'sensitive module stays off by default');
+  assert.equal(byId.mcpConnector.present, false, 'storages/mcp_connector.json does not exist in this fixture');
+  assert.equal(byId.credentials.sensitive, true);
+
+  const overridden = await invoke(env.server, {
+    headers,
+    body: { action: 'modules.preview', payload: { include: { mcpConnector: true, skillsDsh: false } } },
+  });
+  const overriddenById = Object.fromEntries(overridden.value.value.modules.map((module) => [module.id, module]));
+  assert.equal(overriddenById.mcpConnector.enabled, true);
+  assert.equal(overriddenById.skillsDsh.enabled, false);
+});
+
 test('mountApi registers now, waits for a late web server, or reports the absence', () => {
   const routes = [];
   const server = {
