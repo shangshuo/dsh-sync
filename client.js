@@ -219,11 +219,14 @@ window.__ModuleLoader__.load({
 
       const setNotice = useCallback((notice) => {
         setGlobalNotice(notice);
-        if (notice) {
-          const timer = setTimeout(() => setGlobalNotice((current) => (current === notice ? null : current)), 5000);
-          return () => clearTimeout(timer);
-        }
-        return undefined;
+        if (notice) setTimeout(() => setGlobalNotice((current) => (current === notice ? null : current)), 5000);
+      }, []);
+
+      /** 恢复来源（快照选择、文件路径）一旦变化，已预览的清单即失效。 */
+      const resetPlan = useCallback(() => {
+        setPlan(null);
+        setConfirmRestore(false);
+        setShowAllPlan(false);
       }, []);
 
       const say = useCallback((action, tone, text) => setFeedback((current) => ({ ...current, [action]: { tone, text } })), []);
@@ -252,6 +255,9 @@ window.__ModuleLoader__.load({
         });
         setEditing({ passphrase: false, s3Secret: false, webdavPassword: false });
         setConfirmDelete(false);
+        setFeedback({});
+        setPrivacyAck({});
+        setShowAllPlan(false);
         setDirty(false);
       }, []);
 
@@ -373,8 +379,7 @@ window.__ModuleLoader__.load({
       const onTest = run('test', {
         stageText: '正在连接存储目标…',
         task: async () => {
-          await save();
-          setDirty(false);
+          // 显式保存模型：测试/备份只针对已保存的配置，表单草稿需先点「保存」或「保存并继续」。
           const result = await call('test');
           say('test', result.ok ? 'ok' : 'err', result.message);
           await refresh().catch(() => {});
@@ -384,8 +389,6 @@ window.__ModuleLoader__.load({
       const onPush = run('push', {
         stageText: '正在采集文件 → 打包加密 → 上传…',
         task: async () => {
-          await save();
-          setDirty(false);
           setStage('正在打包加密…');
           const result = await call('push');
           say(
@@ -412,7 +415,8 @@ window.__ModuleLoader__.load({
         const include = { ...(formRef.current.include ?? {}), [moduleId]: next };
         setForm((current) => ({ ...current, include }));
         setDirty(true);
-        void loadModules(include);
+        // 不重新请求 modules.preview：统计口径是"本机各模块全量体积"，
+        // 勾选开关只改"要不要备份"，数据本身不变。
       };
 
       const onPreview = run('preview', {
@@ -437,7 +441,7 @@ window.__ModuleLoader__.load({
             const result = await call('pick.path', { kind: pickKind });
             if (result.path) {
               setFilePath(result.path);
-              setPlan(null);
+              resetPlan();
               say(`pick-${pickKind}`, 'ok', `已选择：${result.path}`);
             } else if (result.message) {
               say(`pick-${pickKind}`, 'warn', result.message);
@@ -619,9 +623,12 @@ window.__ModuleLoader__.load({
       const statusHeader = h(
         'section',
         { className: 'dshsync-statusbar' },
-        h('span', { className: `dshsync-dot ${statusDot.tone}`, title: statusDot.text }),
+        h('button', { type: 'button', className: 'dshsync-dotbtn', title: '查看状态详情', onClick: () => setTab('advanced') },
+          h('span', { className: `dshsync-dot ${statusDot.tone}` }),
+        ),
         h('span', { className: 'dshsync-statusmain' }, statusDot.text),
         h('span', { className: 'dshsync-statusmeta' },
+          status?.target && status.target.kind !== 'none' ? `${KIND_LABEL[status.target.kind] ?? status.target.kind} · ` : '',
           status?.lastPush ? `上次备份 ${timeText(status.lastPush.at)} · ${bytesText(status.lastPush.bytes)}` : '还没有备份过',
           status?.remote?.latest ? ` · 云端 ${timeText(status.remote.latest.createdAt)}（${status.remote.latest.device}）` : '',
           status?.schedule?.enabled ? ` · 每 ${status.schedule.intervalMinutes} 分钟自动备份` : '',
@@ -778,7 +785,15 @@ window.__ModuleLoader__.load({
           { className: 'dshsync-card' },
           h('h3', null, '操作'),
           dirty
-            ? h('div', { className: 'dshsync-dirtybar' }, '有未保存的修改。测试连接 / 立即备份会先保存这些修改。')
+            ? h(
+                'div',
+                { className: 'dshsync-dirtybar' },
+                h('span', null, '有未保存的修改。测试连接 / 立即备份只作用于已保存的配置。'),
+                h('span', { className: 'dshsync-dirtyactions' },
+                  h(Button, { primary: true, onClick: onSave, disabled: Boolean(busy) }, busy === 'save' ? '保存中…' : '保存并继续'),
+                  h(Button, { onClick: () => { refresh().catch(() => {}); }, disabled: Boolean(busy) }, '放弃修改'),
+                ),
+              )
             : null,
           h(
             'div',
@@ -806,9 +821,27 @@ window.__ModuleLoader__.load({
             'p',
             { className: 'dshsync-hint' },
             kind === 'local' || status?.target?.kind === 'local'
-              ? `本地模式：把另一台机器的 latest.json 和 snapshots 目录拷到目标目录（${status?.target?.path ?? '见存储目标'} 下 ${form.prefix || 'dsh-sync'}）后，这里会自动列出。`
+              ? h(
+                  React.Fragment,
+                  null,
+                  '本地模式：把另一台机器的 latest.json 和 snapshots 目录拷到目标目录后，这里会自动列出。目标目录：',
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dshsync-linkbtn',
+                      onClick: () => {
+                        const target = `${status?.target?.path ?? ''}/${form.prefix || 'dsh-sync'}`;
+                        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(target).then(() => say('copy', 'ok', `已复制：${target}`)).catch(() => say('copy', 'warn', `复制失败，请手动选择路径：${target}`));
+                        else say('copy', 'warn', `当前环境不支持自动复制，请手动记录：${target}`);
+                      },
+                    },
+                    '点此复制',
+                  ),
+                )
               : '只要目标与口令一致，就能读到这台机器以及其他设备推上去的快照。',
           ),
+          h(Feedback, { feedback: feedback.copy }),
           snapshots.length === 0
             ? h('div', { className: 'dshsync-note warn' }, '还没有读到快照。先在「备份」页配置目标与口令并备份一次；或用下面的「从文件导入」。')
             : h(
@@ -822,8 +855,7 @@ window.__ModuleLoader__.load({
                     value: selectedSnapshot,
                     onChange: (event) => {
                       setSelectedSnapshot(event.target.value);
-                      setPlan(null);
-                      setConfirmRestore(false);
+                      resetPlan();
                     },
                   },
                   snapshots.map((snapshot) =>
@@ -841,6 +873,7 @@ window.__ModuleLoader__.load({
             h(Button, { onClick: onRefreshSnapshots, disabled: Boolean(busy) }, busy === 'snapshots' ? '读取中…' : '刷新列表'),
             h(Button, { primary: true, onClick: onPreview, disabled: Boolean(busy) || !selectedSnapshot }, busy === 'preview' ? '读取中…' : '预览选中的快照'),
           ),
+          h(Progress, { stage: busy === 'preview' ? stage : '' }),
           h(Feedback, { feedback: feedback.snapshots }),
           h(Feedback, { feedback: feedback.preview }),
         ),
@@ -853,7 +886,10 @@ window.__ModuleLoader__.load({
           h(Text, {
             value: filePath,
             placeholder: '点下面选择文件/文件夹，或直接粘贴路径',
-            onChange: (v) => setFilePath(v),
+            onChange: (v) => {
+              setFilePath(v);
+              resetPlan();
+            },
           }),
           h(
             'div',
@@ -862,6 +898,7 @@ window.__ModuleLoader__.load({
             h(Button, { onClick: () => onPick('folder'), disabled: Boolean(busy) }, busy === 'pick-folder' ? '等待选择…' : '选择文件夹…'),
             h(Button, { primary: true, onClick: onPreviewFile, disabled: Boolean(busy) || !filePath.trim() }, busy === 'previewFile' ? '读取中…' : '预览这个文件'),
           ),
+          h(Progress, { stage: busy === 'previewFile' ? stage : '' }),
           h(Feedback, { feedback: feedback['pick-file'] }),
           h(Feedback, { feedback: feedback['pick-folder'] }),
           h(Feedback, { feedback: feedback.previewFile }),
@@ -875,21 +912,26 @@ window.__ModuleLoader__.load({
               h(Row, { label: '快照时间', value: timeText(plan.createdAt) }),
               h(Row, { label: '来源设备', value: `${plan.device ?? '—'} · 配置「${plan.profileOfSnapshot ?? plan.profile ?? '—'}」` }),
               h(Row, { label: plan.dryRun === false ? '已写入文件' : '将改动文件', value: `${plan.changes ?? plan.written} 个` }),
-              plan.bundles && plan.bundles.missing && plan.bundles.missing.length > 0 && plan.dryRun === false
-                ? h(Row, { label: '插件安装', value: `已自动安装 ${plan.bundles.missing.length} 个插件包（${plan.bundles.missing.map((bundle) => bundle.name).join('、')}）`, tone: 'ok' })
+              plan.bundles && plan.bundles.missing && plan.bundles.missing.length > 0
+                ? h(Row, {
+                    label: '插件安装',
+                    value: plan.dryRun === false
+                      ? `已自动安装 ${plan.bundles.missing.length} 个插件包（${plan.bundles.missing.map((bundle) => bundle.name).join('、')}）`
+                      : `恢复后将自动安装 ${plan.bundles.missing.length} 个插件包（${plan.bundles.missing.map((bundle) => bundle.name).join('、')}）`,
+                    tone: plan.dryRun === false ? 'ok' : undefined,
+                  })
                 : null,
               planItems.length > 0
                 ? h(
                     'div',
                     null,
                     h('ul', { className: 'dshsync-list' }, planItems.map((item) => h('li', { key: `${item.path}-${item.action}` }, `${item.path}（${item.action}）`))),
-                    (plan.sample ?? []).length > 12 && plan.dryRun !== false
-                      ? h('button', { type: 'button', className: 'dshsync-linkbtn', onClick: () => setShowAllPlan((current) => !current) }, showAllPlan ? '收起' : `展开全部 ${plan.sample.length} 条`)
+                    (plan.sample ?? []).length > 12
+                      ? h('button', { type: 'button', className: 'dshsync-linkbtn', onClick: () => setShowAllPlan((current) => !current) }, showAllPlan ? '收起' : `展开更多（至多 50 条）`)
                       : null,
                   )
               : null,
-              plan.dryRun === false && plan.warnings && plan.warnings.length > 0 ? h('div', { className: 'dshsync-note warn' }, plan.warnings.join('；')) : null,
-              plan.dryRun !== false && plan.warnings && plan.warnings.length > 0 ? h('div', { className: 'dshsync-note warn' }, plan.warnings.join('；')) : null,
+              plan.warnings && plan.warnings.length > 0 ? h('div', { className: 'dshsync-note warn' }, plan.warnings.join('；')) : null,
               plan.dryRun === false
                 ? h('div', { className: 'dshsync-note ok' }, `恢复完成。${plan.restartRequired ? '已改到 profile，请完全退出 DSH 再打开。' : ''}${plan.backupDir ? ` 被覆盖文件的备份在 ${plan.backupDir}` : ''}`)
                 : plan.dryRun && plan.changes > 0
@@ -933,6 +975,7 @@ window.__ModuleLoader__.load({
             h(Button, { onClick: () => setNaming({ mode: 'create', value: '' }), disabled: Boolean(busy) }, '新建'),
             h(Button, { onClick: () => setNaming({ mode: 'rename', value: config?.active ?? '' }), disabled: Boolean(busy) }, '重命名'),
             h(Button, { danger: confirmDelete, onClick: removeProfile, disabled: Boolean(busy) }, confirmDelete ? '确认删除' : '删除'),
+            confirmDelete ? h(Button, { onClick: () => setConfirmDelete(false), disabled: Boolean(busy) }, '取消') : null,
           ),
           naming
             ? h(
@@ -1012,7 +1055,8 @@ window.__ModuleLoader__.load({
 .dshsync-root h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
 .dshsync-sub { margin: 0 0 14px; color: var(--dsw-alias-label-secondary); }
 .dshsync-statusbar { display: flex; align-items: center; gap: 8px; background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; flex-wrap: wrap; }
-.dshsync-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dshsync-dotbtn { background: none; border: 0; padding: 2px; cursor: pointer; display: inline-flex; }
+.dshsync-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: block; }
 .dshsync-dot.ok { background: var(--dsw-alias-state-success-primary); }
 .dshsync-dot.warn { background: var(--dsw-alias-state-warn-primary); }
 .dshsync-dot.err { background: var(--dsw-alias-state-error-primary); }
@@ -1059,7 +1103,8 @@ window.__ModuleLoader__.load({
 .dshsync-progress { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; margin-bottom: 10px; }
 .dshsync-spinner { width: 12px; height: 12px; border: 2px solid var(--dsw-alias-border-l2); border-top-color: var(--dsw-alias-brand-primary); border-radius: 50%; animation: dshsync-spin .8s linear infinite; }
 @keyframes dshsync-spin { to { transform: rotate(360deg); } }
-.dshsync-dirtybar { background: var(--dsw-alias-bg-layer-2); border-left: 3px solid var(--dsw-alias-state-warn-primary); border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; color: var(--dsw-alias-label-secondary); }
+.dshsync-dirtybar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: var(--dsw-alias-bg-layer-2); border-left: 3px solid var(--dsw-alias-state-warn-primary); border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; color: var(--dsw-alias-label-secondary); }
+.dshsync-dirtyactions { display: flex; gap: 8px; }
 .dshsync-kv { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px dashed var(--dsw-alias-border-l1); }
 .dshsync-kv:last-child { border-bottom: 0; }
 .dshsync-k { color: var(--dsw-alias-label-secondary); flex: none; }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { defaultProfile, saveDocument } from '../lib/config.js';
-import { openArchive, unpackContainer } from '../lib/container.js';
+import { openArchive, packContainer, sealArchive, unpackContainer } from '../lib/container.js';
 import { SyncEngine } from '../lib/engine.js';
 import { SecretStore } from '../lib/secrets.js';
 
@@ -128,7 +128,7 @@ test('push, status, prune, restore and credentials merge', async (t) => {
   const localCredentials = await fs.readFile(path.join(env.dshHome, '.credentials.yaml'), 'utf8');
   assert.match(localCredentials, /device-old/, 'device identity stays local');
   assert.match(localCredentials, /token-old/, 'portable record restored');
-  assert.ok(!localCredentials.includes('browser-local') || localCredentials.includes('browser-local'), 'browser secret is preserved locally');
+  assert.match(localCredentials, /browser-local/, 'device-bound secret stays in the local file');
   assert.ok(restored.backupDir !== null);
   const backups = await fs.readdir(restored.backupDir);
   assert.ok(backups.includes('profile'));
@@ -306,4 +306,99 @@ test('new modules (ui prefs, skill manager, mcp connector, .env) follow their in
     `disabled-module warning names the module: ${JSON.stringify(dry.warnings)}`,
   );
   assert.ok(dry.sample.every((item) => !item.path.startsWith('mcp/')), 'entries of a disabled module are not restored');
+});
+
+test('legacy 0.3 snapshots with profile/node_modules restore when nodeModules is on', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-sync-legacy-'));
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const dshHome = path.join(root, 'dsh');
+  const profileDir = path.join(dshHome, 'profiles', 'desktop');
+  await fs.mkdir(profileDir, { recursive: true });
+  await fs.writeFile(path.join(profileDir, 'package.json'), '{"name":"x","dependencies":{}}');
+
+  const profile = defaultProfile('旧快照');
+  profile.target = { ...profile.target, kind: 'local', prefix: 'dsh-sync', local: { path: path.join(root, 'remote') } };
+  profile.passphrase = PASSPHRASE;
+  const store = new SecretStore({ dir: path.join(dshHome, 'dsh-sync') });
+
+  const makeEngine = () => {
+    const engine = new SyncEngine({ dshHome, profileDir, profileName: 'desktop' });
+    engine.store = store;
+    return engine;
+  };
+
+  // 模拟 0.3 快照：node_modules 挂在 profile/ 前缀下
+  const crypto = await import('node:crypto');
+  const legacyData = Buffer.from('module.exports');
+  const entry = {
+    path: 'profile/node_modules/left-pad/index.js',
+    type: 'file',
+    mode: 0o644,
+    size: legacyData.length,
+    sha256: crypto.createHash('sha256').update(legacyData).digest('hex'),
+    data: legacyData,
+  };
+  const header = {
+    format: 'dsh-sync/2',
+    createdAt: '2026-09-01T00:00:00.000Z',
+    device: 'old',
+    profile: '旧',
+    platform: 'darwin',
+    generator: 'dsh-sync 0.3.4',
+    contentHash: 'x',
+    roots: [{ id: 'profile', label: 'DSH 配置档案', type: 'dir', path: '/old/profile' }],
+    counts: { files: 1, dirs: 0, symlinks: 0, bytes: legacyData.length },
+    reason: 'manual',
+  };
+  const legacyFile = path.join(root, 'legacy.dshsync');
+  await fs.writeFile(legacyFile, sealArchive(packContainer(header, [entry]), PASSPHRASE, {}));
+
+  // nodeModules 关闭：条目被跳过，告警归名"插件代码"
+  await saveDocument(path.join(dshHome, 'dsh-sync', 'config.json'), store, { version: 2, active: '旧快照', profiles: [profile] });
+  const dryOff = await makeEngine().pullFromFile(legacyFile, { dryRun: true });
+  assert.equal(dryOff.changes, 0);
+  assert.ok(dryOff.warnings.some((w) => w.includes('插件代码')), JSON.stringify(dryOff.warnings));
+
+  // nodeModules 开启：0.3 前缀映射到独立模块，正常恢复
+  profile.include.nodeModules = true;
+  await saveDocument(path.join(dshHome, 'dsh-sync', 'config.json'), store, { version: 2, active: '旧快照', profiles: [profile] });
+  const applied = await makeEngine().pullFromFile(legacyFile, { dryRun: false, confirm: true });
+  assert.equal(applied.written, 1);
+  assert.equal(await fs.readFile(path.join(profileDir, 'node_modules', 'left-pad', 'index.js'), 'utf8'), 'module.exports');
+});
+
+test('homePatch and workspaceRoot switches control their archive prefixes', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-sync-switches-'));
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const dshHome = path.join(root, 'dsh');
+  const profileDir = path.join(dshHome, 'profiles', 'desktop');
+  const remote = path.join(root, 'remote');
+  await fs.mkdir(profileDir, { recursive: true });
+  await fs.writeFile(path.join(profileDir, 'package.json'), '{"name":"p","dependencies":{}}');
+  await fs.writeFile(path.join(dshHome, 'cordis.patch.yml'), '- id: home\n');
+  await fs.writeFile(path.join(dshHome, 'profiles', 'package.json'), '{"name":"profiles","dependencies":{"dshmarket":"1.0.0"}}');
+
+  const profile = defaultProfile('开关');
+  profile.target = { ...profile.target, kind: 'local', prefix: 'dsh-sync', local: { path: remote } };
+  profile.passphrase = PASSPHRASE;
+  profile.include.homePatch = false;
+  profile.include.workspaceRoot = true;
+  const store = new SecretStore({ dir: path.join(dshHome, 'dsh-sync') });
+  await saveDocument(path.join(dshHome, 'dsh-sync', 'config.json'), store, { version: 2, active: '开关', profiles: [profile] });
+  const engine = new SyncEngine({ dshHome, profileDir, profileName: 'desktop' });
+  engine.store = store;
+
+  await engine.push();
+  const latest = JSON.parse(await fs.readFile(path.join(remote, 'dsh-sync', 'latest.json'), 'utf8'));
+  const envelope = await fs.readFile(path.join(remote, 'dsh-sync', latest.snapshot));
+  const paths = unpackContainer(openArchive(envelope, PASSPHRASE).plain).entries.map((entry) => entry.path);
+  assert.ok(!paths.includes('home/cordis.patch.yml'), 'homePatch=false keeps the home patch out');
+  assert.ok(paths.includes('workspace-root/package.json'), 'workspaceRoot=true archives the workspace root');
+
+  const status = await engine.status();
+  assert.ok(status.local.roots.every((rootStat) => typeof rootStat.present === 'boolean'), 'status.local.roots carries present flags');
 });
