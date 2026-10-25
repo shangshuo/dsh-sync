@@ -21,16 +21,13 @@ window.__ModuleLoader__.load({
 
 
     // ===== i18n：跟随 DSH 的语言设置（<html lang> 由 DSH locale 机制实时写入）=====
-    const LANG = { current: 'zh' };
+    // t() 每次实时读取 <html lang>，不缓存语言状态：用户在 DSH 设置里切语言时
+    // 本组件往往已被卸载（设置面板同时只挂载一个区块），缓存必然过期。
     function detectLang() {
       const raw = document.documentElement?.lang || navigator.language || 'zh';
       return raw.toLowerCase().startsWith('zh') ? 'zh' : 'en';
     }
-    function applyLang() {
-      LANG.current = detectLang();
-    }
-    applyLang();
-    // 语言切换时的重渲染由 SyncSettings 内的 MutationObserver 驱动（需要触发 React 状态更新）。
+    // 语言变化的重渲染由 SyncSettings 内的 MutationObserver 驱动（需要触发 React 状态更新）。
     /** 英文映射表：键 = 中文源文本（与后端 lib/i18n.js 同一“源文本作键”模式）。 */
     const EN = {
       'S3 兼容': 'S3-compatible',
@@ -227,7 +224,7 @@ window.__ModuleLoader__.load({
     };
     /** 翻译：中文源文本作键；en 查表（缺失回退中文），{param} 插值。 */
     function t(template, params) {
-      const pattern = LANG.current === 'en' ? EN[template] : undefined;
+      const pattern = detectLang() === 'en' ? EN[template] : undefined;
       const text = pattern ?? template;
       if (!params) return text;
       return text.replace(/\{(\w+)\}/g, (match, key) => (key in params ? String(params[key]) : match));
@@ -278,7 +275,7 @@ window.__ModuleLoader__.load({
     async function call(action, payload) {
       const response = await fetch(API, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-dsh-sync': '1' },
+        headers: { 'content-type': 'application/json', 'x-dsh-sync': '1', 'x-dsh-sync-lang': detectLang() },
         body: JSON.stringify({ action, payload }),
       });
       let data;
@@ -531,7 +528,6 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (typeof MutationObserver !== 'function') return undefined;
         const observer = new MutationObserver(() => {
-          applyLang();
           setLangTick((tick) => tick + 1);
         });
         observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
