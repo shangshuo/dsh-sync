@@ -1,9 +1,9 @@
 {
   "name": "@local/dsh-sync",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Encrypted, scheduled backup and restore of a DSH profile (plugins, plugin settings, skills, MCP servers) to S3-compatible storage, WebDAV or a local folder, with a Settings page.",
+  "description": "Encrypted, scheduled backup and restore of a DSH profile (plugins, plugin settings, skills, UI preferences, optional MCP connector and API keys) to S3-compatible storage, WebDAV or a local folder, with a tabbed Settings page and selectable backup modules.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
