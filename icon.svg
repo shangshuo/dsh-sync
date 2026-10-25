@@ -1,20 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="DSH Sync">
-  <defs>
-    <linearGradient id="bg" x1="14" y1="10" x2="116" y2="118" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#3B6EF6"/>
-      <stop offset="1" stop-color="#7A4DF0"/>
-    </linearGradient>
-    <linearGradient id="cloud" x1="40" y1="38" x2="92" y2="88" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#DDE7FF"/>
-    </linearGradient>
-  </defs>
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
-  <path d="M46 88c-10.5 0-19-8.2-19-18.3 0-10 8-18.1 18.2-18.3C48.6 41.0 58.6 33.5 70.2 33.5c13.6 0 24.8 10.3 26.3 23.5C105.4 59.3 112 66.9 112 76c0 9.6-8.1 17.4-18.1 17.4H46z" fill="url(#cloud)"/>
-  <g fill="none" stroke="#3B6EF6" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M48 104h20"/>
-    <path d="M62 98l6 6-6 6"/>
-    <path d="M80 112H60"/>
-    <path d="M66 118l-6-6 6-6"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="DSH Sync">
+  <style>
+    .dsh-sync-glyph { stroke: #17181a; fill: none; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+    .dsh-sync-head { fill: #17181a; stroke: none; }
+    @media (prefers-color-scheme: dark) {
+      .dsh-sync-glyph { stroke: #f4f5f7; }
+      .dsh-sync-head { fill: #f4f5f7; }
+    }
+  </style>
+  <path class="dsh-sync-glyph" d="M30 66 C21 66 14 59 14 50.5 C14 42.5 20 36 27.8 35.3 C29.5 26.5 37.3 20 46.5 20 C55.2 20 62.6 25.7 64.8 33.6 C66.5 33.2 68.2 33 70 33 C79.4 33 87 40.6 87 50 C87 58.8 80 65.8 71.2 66"/>
+  <path class="dsh-sync-glyph" d="M38 46.5 H 61"/>
+  <path class="dsh-sync-head" d="M57.5 40.5 L 65.5 46.5 L 57.5 52.5 Z"/>
+  <path class="dsh-sync-glyph" d="M62 57.5 H 39"/>
+  <path class="dsh-sync-head" d="M42.5 51.5 L 34.5 57.5 L 42.5 63.5 Z"/>
 </svg>

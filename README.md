@@ -1,5 +1,7 @@
 # DSH Sync · DSH 配置同步插件
 
+[English](./README.en.md) · 简体中文
+
 把一整台机器上的 DSH「个人状态」加密备份到云端，换电脑后一条命令还原：插件、插件设置、模型与界面偏好、MCP 服务器、自建 skill、API Key，全都在里面。
 
 - **一个归档**：所有配置打包成一个加密文件，云端只看到密文。
@@ -171,7 +173,7 @@ Agent 会调用 `sync_profile`（create/select），之后 `sync_configure` 写�
 2. `dryRun:false` 且 `confirm:true` 才写盘；写前把被覆盖的文件复制到 `$DSH_HOME/dsh-sync/backups/<时间戳>/`。
 3. **不删除**本机独有的文件；快照里没有的来源（比如本机没配的 `extraPaths`）直接跳过并告警。
 4. `profile/` 有变更时返回 `restartRequired: true` —— 重启 DSH 生效。
-5. 缺失的插件包：若配置里 `restore.installBundles` 为真（默认），会调用 DSH 自带的 pnpm 在 profile 里 `pnpm install`；失败会告警并保留备份。`link:` / `file:` 安装的本地插件需要你手工重装。
+5. 缺失的插件包：若配置里 `restore.installBundles` 为真（默认），会调用 DSH 自带的 pnpm 在 profile 里 `pnpm install`；失败会告警并保留备份。`link:` / `file:` 安装的本地插件由快照内的源码自动释放并重新链接（0.5+），无需手工重装；本机同名插件链接仍有效时保留本机版本。
 
 ---
 
@@ -211,7 +213,8 @@ lib/container.js      归档容器 + 认证加密
 lib/collect.js        快照采集（模块清单、profile 白名单、浅遍历试算）
 lib/engine.js         push / pull / status / prune
 lib/config.js         配置、状态、日志、脱敏
-lib/tools.js          6 个 agent 工具
+lib/i18n.js           Host 侧消息双语（中文源文本作键）
+lib/tools.js          7 个 agent 工具
 lib/backends/         s3.js / webdav.js / local.js
 lib/credentials.js    设备绑定记录的过滤与合并
 scripts/live-verify.mjs  真机 round-trip 与旧快照兼容验证

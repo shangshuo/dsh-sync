@@ -49,9 +49,7 @@ window.__ModuleLoader__.load({
       '修改': 'Change',
       '请输入': 'Enter',
       '读取中…': 'Loading…',
-      '未知': 'Unknown',
-      '已设置': 'Set',
-      '取消': 'Cancel',
+                  '取消': 'Cancel',
       '确定': 'OK',
       '含隐私': 'sensitive',
       '我已了解，启用': 'I understand, enable',
@@ -205,28 +203,16 @@ window.__ModuleLoader__.load({
       '（共 {n} 个）': '({n} total)',
       '已自动安装 {n} 个插件包（{list}）': 'Auto-installed {n} plugin package(s) ({list})',
       '恢复后将自动安装 {n} 个插件包（{list}）': 'Will auto-install {n} plugin package(s) ({list})',
-      '已释放 {n} 个：{list}': 'Unpacked {n}: {list}',
-      '将释放 {n} 个：{list}': 'Will unpack {n}: {list}',
-      '保留本机版本 {n} 个：{list}': 'Kept {n} local copy(ies): {list}',
+                  '保留本机版本 {n} 个：{list}': 'Kept {n} local copy(ies): {list}',
       '已释放': 'Unpacked',
       '将释放': 'Will unpack',
       '{name}（{action}）': '{name} ({action})',
-      '本机内容与这份快照一致': 'This machine matches the snapshot',
-      '恢复完成。': 'Restore finished.',
+            '恢复完成。': 'Restore finished.',
       ' 被覆盖文件的备份在 {dir}': ' Backups of overwritten files are in {dir}',
       '点此复制': 'click to copy',
-      'MCP 连接器（含令牌）': 'MCP connector (contains tokens)',
-      '凭证与 API Key': 'Credentials & API keys',
-      'DSH 配置档案': 'DSH profile',
-      '本地目录插件': 'Local-folder plugins',
-      '机器级补丁': 'Machine-level patch',
-      'DSH 自建技能': 'DSH home skills',
-      '跨工具技能': 'Cross-tool skills',
-      '桌面界面偏好': 'Desktop UI preferences',
-      '技能管理器设置': 'Skill manager settings',
-      '工作区根依赖': 'Workspace root dependencies',
-      '插件代码（node_modules）': 'Plugin code (node_modules)',
-      '附加目录': 'Extra folders',
+                                                                        'include.extraPaths 里配置的附加目录（本页暂不提供编辑，可用对话设置）': 'Extra folders configured in include.extraPaths (not editable on this page; set them via chat)',
+      '不存在': 'Absent',
+      '云端还没有快照': 'No snapshots in the cloud yet',
       '该模块的文件可能包含 API 密钥或服务器访问令牌。这些内容不会被上传到任何第三方：文件在本机读取后整体加密（scrypt 派生密钥），': 'Files in this module may contain API keys or server access tokens. None of that is uploaded to any third party: files are read locally, encrypted as a whole (scrypt-derived key),',
       '离开设备的只有密文——插件作者与云端存储都无法解密。凭证文件会在本机按规则剔除设备绑定记录后再入包（剔除过程不出本机）。': 'and only ciphertext ever leaves the device — neither the plugin author nor the cloud storage can decrypt it. Credential files have device-bound records stripped locally before being packed (stripping never leaves this machine).',
       '恢复时同样只在解密后写回本机。插件本身没有任何遥测或内容上报。请确保口令足够强，并自行保管好口令。': 'On restore, content is written back locally after decryption only. The plugin has no telemetry and reports nothing. Use a strong passphrase and keep it safe.',
@@ -265,7 +251,7 @@ window.__ModuleLoader__.load({
       if (char === ' ') return t('空格');
       if (char === '\t') return t('制表符');
       if (char === '\n') return t('换行');
-      return `「${char}」(U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')})`;
+      return t('「{char}」(U+{code})', { char, code: char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') });
     }
 
     function invalidChars(value) {
