@@ -1,15 +1,19 @@
 /**
- * Client half: the "同步" page inside Settings.
+ * Client half: the "同步" page inside Settings (0.4 UI).
  *
  * Loaded as a plain browser module (no build step). It talks to the Host through
  * `/dsh-sync/api`, which the Host plugin registers on the same web server.
+ *
+ * Layout: a permanent status header (one glance = "am I synced?") + three tabs
+ * (备份 / 恢复 / 高级). Every action renders its result directly below the
+ * buttons that triggered it, so feedback is never outside the viewport.
  */
 window.__ModuleLoader__.load({
   id: '@local/dsh-sync',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
-    const { useCallback, useEffect, useMemo, useState } = React;
+    const { useCallback, useEffect, useMemo, useRef, useState } = React;
 
     const API = '/dsh-sync/api';
     const KIND_LABEL = { s3: 'S3 兼容', webdav: 'WebDAV', local: '本地目录', none: '未配置' };
@@ -23,6 +27,11 @@ window.__ModuleLoader__.load({
       { text: '至少 1 个特殊符号（@ # $ * - _）', test: (value) => /[@#$*\-_]/.test(value) },
       { text: '只能使用字母、数字和 @ # $ * - _', test: (value) => /^[A-Za-z0-9@#$*\-_]*$/.test(value) },
     ];
+
+    const PRIVACY_NOTICE =
+      '该模块的文件可能包含 API 密钥或服务器访问令牌。DSH 同步插件不读取、不解析、不上传任何此类隐私内容：' +
+      '文件只被原样整体打包，用你设置的口令加密（scrypt 派生密钥）后才离开本机——插件作者与云端存储都无法解密。' +
+      '恢复时同样只在解密后原样写回本机。请确保口令足够强，并自行保管好口令。';
 
     function describeChar(char) {
       if (char === ' ') return '空格';
@@ -124,7 +133,7 @@ window.__ModuleLoader__.load({
         'button',
         {
           type: 'button',
-          className: `dshsync-btn${props.primary ? ' primary' : ''}${props.danger ? ' danger' : ''}`,
+          className: `dshsync-btn${props.primary ? ' primary' : ''}${props.danger ? ' danger' : ''}${props.ghost ? ' ghost' : ''}`,
           disabled: props.disabled,
           onClick: props.onClick,
         },
@@ -159,14 +168,36 @@ window.__ModuleLoader__.load({
       });
     }
 
+    /** 就地结果块：渲染在触发它的按钮正下方。 */
+    function Feedback(props) {
+      if (!props.feedback) return null;
+      return h('div', { className: `dshsync-note ${props.feedback.tone}` }, props.feedback.text);
+    }
+
+    /** 长操作阶段指示（无百分比，只有阶段文案 + 转圈）。 */
+    function Progress(props) {
+      if (!props.stage) return null;
+      return h(
+        'div',
+        { className: 'dshsync-progress', role: 'status' },
+        h('span', { className: 'dshsync-spinner', 'aria-hidden': true }),
+        h('span', null, props.stage),
+      );
+    }
+
     function SyncSettings() {
       const [status, setStatus] = useState(null);
       const [config, setConfig] = useState(null);
+      const [tab, setTab] = useState('backup');
       const [kind, setKind] = useState('s3');
       const [form, setForm] = useState({});
+      const [modules, setModules] = useState([]);
+      const [extras, setExtras] = useState([]);
       const [editing, setEditing] = useState({ passphrase: false, s3Secret: false, webdavPassword: false });
       const [busy, setBusy] = useState('');
-      const [notice, setNotice] = useState(null);
+      const [stage, setStage] = useState('');
+      const [globalNotice, setGlobalNotice] = useState(null);
+      const [feedback, setFeedback] = useState({}); // per-action: { save: {tone,text}, push: {...} }
       const [plan, setPlan] = useState(null);
       const [snapshots, setSnapshots] = useState([]);
       const [selectedSnapshot, setSelectedSnapshot] = useState('');
@@ -174,8 +205,28 @@ window.__ModuleLoader__.load({
       const [planSource, setPlanSource] = useState('remote');
       const [naming, setNaming] = useState(null);
       const [confirmDelete, setConfirmDelete] = useState(false);
+      const [confirmRestore, setConfirmRestore] = useState(false);
+      const [privacyAck, setPrivacyAck] = useState({}); // moduleId -> true
+      const [showAllPlan, setShowAllPlan] = useState(false);
+      const [dirty, setDirty] = useState(false);
+      const formRef = useRef(form);
+      formRef.current = form;
 
-      const set = useCallback((key, value) => setForm((current) => ({ ...current, [key]: value })), []);
+      const set = useCallback((key, value) => {
+        setForm((current) => ({ ...current, [key]: value }));
+        setDirty(true);
+      }, []);
+
+      const setNotice = useCallback((notice) => {
+        setGlobalNotice(notice);
+        if (notice) {
+          const timer = setTimeout(() => setGlobalNotice((current) => (current === notice ? null : current)), 5000);
+          return () => clearTimeout(timer);
+        }
+        return undefined;
+      }, []);
+
+      const say = useCallback((action, tone, text) => setFeedback((current) => ({ ...current, [action]: { tone, text } })), []);
 
       const hydrate = useCallback((view) => {
         setConfig(view);
@@ -197,9 +248,22 @@ window.__ModuleLoader__.load({
           passphrase: '',
           scheduleEnabled: view.profile.schedule?.enabled === true,
           intervalMinutes: view.profile.schedule?.intervalMinutes ?? 30,
+          include: { ...(view.profile.include ?? {}) },
         });
         setEditing({ passphrase: false, s3Secret: false, webdavPassword: false });
         setConfirmDelete(false);
+        setDirty(false);
+      }, []);
+
+      const loadModules = useCallback(async (includeOverride) => {
+        try {
+          const value = await call('modules.preview', includeOverride ? { include: includeOverride } : {});
+          setModules(value.modules ?? []);
+          setExtras(value.extras ?? []);
+          return value;
+        } catch {
+          return null; // 模块统计失败不阻塞页面
+        }
       }, []);
 
       const loadSnapshots = useCallback(async () => {
@@ -217,18 +281,21 @@ window.__ModuleLoader__.load({
         const value = await call('status');
         setStatus(value.status);
         hydrate(value.config);
+        await loadModules(value.config.profile.include);
         await loadSnapshots().catch(() => {});
         return value;
-      }, [hydrate, loadSnapshots]);
+      }, [hydrate, loadModules, loadSnapshots]);
 
       useEffect(() => {
         refresh().catch((error) => setNotice({ tone: 'err', text: `读取状态失败：${error.message}` }));
-      }, [refresh]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
 
       const payload = useMemo(() => {
         const base = {
           passphrase: form.passphrase,
           schedule: { enabled: form.scheduleEnabled === true, intervalMinutes: Number(form.intervalMinutes) || 30 },
+          include: { ...(form.include ?? {}) },
         };
         if (kind === 's3') {
           return {
@@ -257,6 +324,7 @@ window.__ModuleLoader__.load({
         return { ...base, target: { kind, name: form.name || 'local', prefix: form.prefix, local: { path: form.localPath } } };
       }, [kind, form]);
 
+      /** 显式保存：不再被测试/备份/预览隐式调用。 */
       const save = useCallback(async () => {
         if (editing.passphrase && form.passphrase.length > 0) {
           const errors = ruleErrors(form.passphrase);
@@ -264,149 +332,215 @@ window.__ModuleLoader__.load({
         }
         const value = await call('config.save', payload);
         hydrate(value);
+        await loadModules(value.profile.include);
         return value;
-      }, [payload, hydrate, editing.passphrase, form.passphrase]);
+      }, [payload, hydrate, editing.passphrase, form.passphrase, loadModules]);
 
       const run = useCallback(
-        async (name, task) => {
-          if (busy) return;
-          setBusy(name);
-          setNotice(null);
-          try {
-            await task();
-          } catch (error) {
-            setNotice({ tone: 'err', text: error.message });
-          } finally {
-            setBusy('');
-          }
+        (name, { stageText, task }) => {
+          return () => {
+            if (busy) return;
+            setBusy(name);
+            setStage(stageText ?? '');
+            setFeedback((current) => ({ ...current, [name]: null }));
+            setNotice(null);
+            const promise = task();
+            void promise
+              .catch((error) => say(name, 'err', error.message))
+              .finally(() => {
+                setBusy('');
+                setStage('');
+              });
+            return promise;
+          };
         },
-        [busy],
+        [busy, say, setNotice],
       );
 
-      const onSave = () => run('save', async () => {
-        const value = await save();
-        setNotice({
-          tone: value.profile.problems.length === 0 ? 'ok' : 'warn',
-          text: value.profile.problems.length === 0 ? `已保存到配置「${value.active}」。` : `已保存，但还缺少：${value.profile.problems.join('；')}`,
-        });
+      const onSave = run('save', {
+        stageText: '正在保存配置…',
+        task: async () => {
+          const value = await save();
+          setDirty(false);
+          say(
+            'save',
+            value.profile.problems.length === 0 ? 'ok' : 'warn',
+            value.profile.problems.length === 0 ? `已保存到配置「${value.active}」。` : `已保存，但还缺少：${value.profile.problems.join('；')}`,
+          );
+        },
       });
 
-      const onTest = () => run('test', async () => {
-        await save();
-        const result = await call('test');
-        setNotice({ tone: result.ok ? 'ok' : 'err', text: result.message });
-        await refresh().catch(() => {});
+      const onTest = run('test', {
+        stageText: '正在连接存储目标…',
+        task: async () => {
+          await save();
+          setDirty(false);
+          const result = await call('test');
+          say('test', result.ok ? 'ok' : 'err', result.message);
+          await refresh().catch(() => {});
+        },
       });
 
-      const onPush = () => run('push', async () => {
-        await save();
-        const result = await call('push');
-        setNotice({
-          tone: 'ok',
-          text: result.skipped
-            ? `「${result.profile}」内容没有变化，跳过上传。`
-            : `配置「${result.profile}」备份完成：${result.stats.files} 个文件，${bytesText(result.bytes)}。`,
-        });
-        await refresh().catch(() => {});
+      const onPush = run('push', {
+        stageText: '正在采集文件 → 打包加密 → 上传…',
+        task: async () => {
+          await save();
+          setDirty(false);
+          setStage('正在打包加密…');
+          const result = await call('push');
+          say(
+            'push',
+            'ok',
+            result.skipped
+              ? `「${result.profile}」内容没有变化，跳过上传。`
+              : `备份完成：${result.stats.files} 个文件，${bytesText(result.bytes)}。${result.pruned > 0 ? `清理了 ${result.pruned} 个旧快照。` : ''}`,
+          );
+          await refresh().catch(() => {});
+        },
       });
 
-      const onPreview = () => run('preview', async () => {
-        await save();
-        setPlanSource('remote');
-        const result = await call('pull', { dryRun: true, snapshot: selectedSnapshot || undefined });
-        setPlan(result);
-        setNotice(
-          result.changes === 0
-            ? { tone: 'ok', text: '本机内容与这份快照一致，无需恢复。' }
-            : { tone: 'warn', text: `预览完成：将改动 ${result.changes} 个文件。确认后才会写入。` },
-        );
-        await loadSnapshots().catch(() => {});
-      });
-
-      const onPick = (kind) => run(`pick-${kind}`, async () => {
-        const result = await call('pick.path', { kind });
-        if (result.path) {
-          setFilePath(result.path);
-          setPlan(null);
-          setNotice({ tone: 'ok', text: `已选择：${result.path}` });
-        } else if (result.message) {
-          setNotice({ tone: 'warn', text: result.message });
-        }
-      });
-
-      const onPreviewFile = () => run('previewFile', async () => {
-        await save();
-        setPlanSource('file');
-        const result = await call('pull.file', { path: filePath, dryRun: true });
-        setPlan(result);
-        setNotice(
-          result.changes === 0
-            ? { tone: 'ok', text: '本机内容与这份快照一致，无需恢复。' }
-            : { tone: 'warn', text: `预览完成：将改动 ${result.changes} 个文件。确认后才会写入。` },
-        );
-      });
-
-      const onApply = () => run('apply', async () => {
-        const result =
-          planSource === 'file'
-            ? await call('pull.file', { path: filePath, dryRun: false, confirm: true })
-            : await call('pull', { dryRun: false, confirm: true, snapshot: selectedSnapshot || undefined });
-        setPlan(result);
-        setNotice({
-          tone: 'ok',
-          text: `已恢复 ${result.written} 个文件${result.backedUp ? `，覆盖前备份了 ${result.backedUp} 个文件` : ''}。${result.restartRequired ? ' 请重启 DSH 让配置生效。' : ''}`,
-        });
-        await refresh().catch(() => {});
-      });
-
-      const onRefreshSnapshots = () => run('snapshots', async () => {
-        const list = await loadSnapshots();
-        setNotice({
-          tone: list.snapshots.length > 0 ? 'ok' : 'warn',
-          text:
-            list.snapshots.length > 0
-              ? `读到 ${list.snapshots.length} 个快照，已选中${list.latest?.snapshot === selectedSnapshot ? '最新' : '当前'}那份。`
-              : '目标位置没有找到快照：检查目录/前缀，或先在本机备份一次。',
-        });
-      });
-
-      const switchProfile = (name) => run('select', async () => {
-        const value = await call('profile.select', { name });
-        setStatus((current) => (current ? { ...current, profile: { ...current.profile, name: value.active, names: value.names } } : current));
-        hydrate(value);
-        setPlan(null);
-        setNotice({ tone: 'ok', text: `已切换到配置「${value.active}」。` });
-        await refresh().catch(() => {});
-      });
-
-      const confirmNaming = () => run('naming', async () => {
-        const name = (naming?.value ?? '').trim();
-        if (!name) throw new Error('请先填写名称');
-        if (naming.mode === 'create') {
-          const value = await call('profile.create', { name });
-          hydrate(value);
-          setNotice({ tone: 'ok', text: `已新建配置「${value.active}」，填写目标与口令后保存。` });
-        } else {
-          const value = await call('profile.rename', { from: config.active, to: name });
-          hydrate(value);
-          setNotice({ tone: 'ok', text: `已重命名为「${value.active}」。` });
-        }
-        setNaming(null);
-        await refresh().catch(() => {});
-      });
-
-      const removeProfile = () => run('delete', async () => {
-        if (!confirmDelete) {
-          setConfirmDelete(true);
-          setNotice({ tone: 'warn', text: `再点一次「删除」将移除配置「${config.active}」（不影响云端快照）。` });
+      const onToggleModule = (module) => {
+        const next = !(form.include?.[module.id] ?? module.defaultOn);
+        if (module.sensitive && next && !privacyAck[module.id]) {
+          setPrivacyAck((current) => ({ ...current, [module.id]: 'ask' }));
           return;
         }
-        const value = await call('profile.delete', { name: config.active });
-        setConfirmDelete(false);
-        hydrate(value);
-        setNotice({ tone: 'ok', text: `已删除，当前配置为「${value.active}」。` });
-        await refresh().catch(() => {});
+        applyModuleToggle(module.id, next);
+      };
+
+      const applyModuleToggle = (moduleId, next) => {
+        const include = { ...(formRef.current.include ?? {}), [moduleId]: next };
+        setForm((current) => ({ ...current, include }));
+        setDirty(true);
+        void loadModules(include);
+      };
+
+      const onPreview = run('preview', {
+        stageText: '正在读取快照并比对本机…',
+        task: async () => {
+          const result = await call('pull', { dryRun: true, snapshot: selectedSnapshot || undefined });
+          setPlanSource('remote');
+          setPlan(result);
+          setConfirmRestore(false);
+          say(
+            'preview',
+            result.changes === 0 ? 'ok' : 'warn',
+            result.changes === 0 ? '本机内容与这份快照一致，无需恢复。' : `预览完成：将改动 ${result.changes} 个文件，确认后才会写入。`,
+          );
+          await loadSnapshots().catch(() => {});
+        },
       });
+
+      const onPick = (pickKind) =>
+        run(`pick-${pickKind}`, {
+          task: async () => {
+            const result = await call('pick.path', { kind: pickKind });
+            if (result.path) {
+              setFilePath(result.path);
+              setPlan(null);
+              say(`pick-${pickKind}`, 'ok', `已选择：${result.path}`);
+            } else if (result.message) {
+              say(`pick-${pickKind}`, 'warn', result.message);
+            }
+          },
+        })();
+
+      const onPreviewFile = run('previewFile', {
+        stageText: '正在读取快照并比对本机…',
+        task: async () => {
+          const result = await call('pull.file', { path: filePath, dryRun: true });
+          setPlanSource('file');
+          setPlan(result);
+          setConfirmRestore(false);
+          say(
+            'previewFile',
+            result.changes === 0 ? 'ok' : 'warn',
+            result.changes === 0 ? '本机内容与这份快照一致，无需恢复。' : `预览完成：将改动 ${result.changes} 个文件，确认后才会写入。`,
+          );
+        },
+      });
+
+      const onApply = run('apply', {
+        stageText: '正在备份本机现有文件 → 写入快照内容…',
+        task: async () => {
+          const result =
+            planSource === 'file'
+              ? await call('pull.file', { path: filePath, dryRun: false, confirm: true })
+              : await call('pull', { dryRun: false, confirm: true, snapshot: selectedSnapshot || undefined });
+          setPlan(result);
+          setConfirmRestore(false);
+          say(
+            'apply',
+            'ok',
+            `已恢复 ${result.written} 个文件${result.backedUp ? `，覆盖前备份了 ${result.backedUp} 个文件` : ''}。${result.restartRequired ? ' 请完全退出 DSH 再打开，让配置生效。' : ''}`,
+          );
+          await refresh().catch(() => {});
+        },
+      });
+
+      const onRefreshSnapshots = run('snapshots', {
+        task: async () => {
+          const list = await loadSnapshots();
+          say(
+            'snapshots',
+            list.snapshots.length > 0 ? 'ok' : 'warn',
+            list.snapshots.length > 0
+              ? `读到 ${list.snapshots.length} 个快照。`
+              : '目标位置没有找到快照：检查目录/前缀，或先在本机备份一次。',
+          );
+        },
+      });
+
+      const switchProfile = (name) => {
+        if (!name || name === config?.active) return;
+        run('select', {
+          task: async () => {
+            const value = await call('profile.select', { name });
+            setStatus((current) => (current ? { ...current, profile: { ...current.profile, name: value.active, names: value.names } } : current));
+            hydrate(value);
+            setPlan(null);
+            setNotice({ tone: 'ok', text: `已切换到配置「${value.active}」。` });
+            await refresh().catch(() => {});
+          },
+        })();
+      };
+
+      const confirmNaming = () =>
+        run('naming', {
+          task: async () => {
+            const name = (naming?.value ?? '').trim();
+            if (!name) throw new Error('请先填写名称');
+            if (naming.mode === 'create') {
+              const value = await call('profile.create', { name });
+              hydrate(value);
+              setNotice({ tone: 'ok', text: `已新建配置「${value.active}」，填写目标与口令后保存。` });
+            } else {
+              const value = await call('profile.rename', { from: config.active, to: name });
+              hydrate(value);
+              setNotice({ tone: 'ok', text: `已重命名为「${value.active}」。` });
+            }
+            setNaming(null);
+            await refresh().catch(() => {});
+          },
+        })();
+
+      const removeProfile = () =>
+        run('delete', {
+          task: async () => {
+            if (!confirmDelete) {
+              setConfirmDelete(true);
+              say('delete', 'warn', `再点一次「删除」将移除配置「${config.active}」（不影响云端快照）。`);
+              return;
+            }
+            const value = await call('profile.delete', { name: config.active });
+            setConfirmDelete(false);
+            hydrate(value);
+            say('delete', 'ok', `已删除，当前配置为「${value.active}」。`);
+            await refresh().catch(() => {});
+          },
+        })();
+
+      /* ---------- 渲染 ---------- */
 
       const kindFields = () => {
         if (kind === 's3') {
@@ -468,66 +602,125 @@ window.__ModuleLoader__.load({
         return h(Field, { label: '同步目录', hint: '指向 OneDrive / iCloud / 坚果云同步盘或 NAS 挂载目录' }, h(Text, { value: form.localPath, placeholder: 'C:\\Users\\you\\OneDrive\\dsh-backup', onChange: (v) => set('localPath', v) }));
       };
 
+      const statusDot = (() => {
+        const problems = status?.problems ?? [];
+        if (problems.length > 0) return { tone: 'err', text: '未配置完整' };
+        if (status?.local?.changedSinceLastPush) return { tone: 'warn', text: '有变更待备份' };
+        if (status?.lastPush) return { tone: 'ok', text: '已同步' };
+        return { tone: 'warn', text: '尚未备份' };
+      })();
+
       const passphraseSet = config?.profile?.passphraseSet === true;
       const passphraseErrors = form.passphrase ? ruleErrors(form.passphrase) : [];
       const problems = status?.problems ?? [];
       const statusProfileName = status?.profile?.name ?? config?.active ?? '';
+      const planItems = plan ? (showAllPlan ? plan.sample ?? [] : (plan.sample ?? []).slice(0, 12)) : [];
 
-      return h(
-        'div',
-        { className: 'dshsync-root' },
-        h('style', null, CSS),
-        h('h2', null, 'DSH 同步'),
-        h('p', { className: 'dshsync-sub' }, '每个同步配置对应一个云端目标和一套口令，可保存多份；换电脑时装好插件、选中同名配置、点恢复即可。'),
+      const statusHeader = h(
+        'section',
+        { className: 'dshsync-statusbar' },
+        h('span', { className: `dshsync-dot ${statusDot.tone}`, title: statusDot.text }),
+        h('span', { className: 'dshsync-statusmain' }, statusDot.text),
+        h('span', { className: 'dshsync-statusmeta' },
+          status?.lastPush ? `上次备份 ${timeText(status.lastPush.at)} · ${bytesText(status.lastPush.bytes)}` : '还没有备份过',
+          status?.remote?.latest ? ` · 云端 ${timeText(status.remote.latest.createdAt)}（${status.remote.latest.device}）` : '',
+          status?.schedule?.enabled ? ` · 每 ${status.schedule.intervalMinutes} 分钟自动备份` : '',
+        ),
+        h('span', { className: 'dshsync-statusspacer' }),
+        problems.length > 0 ? h('button', { type: 'button', className: 'dshsync-linkbtn', onClick: () => setTab('backup') }, `待完善：${problems.length} 项`) : null,
+      );
 
-        notice ? h('div', { className: `dshsync-note ${notice.tone}` }, notice.text) : null,
+      const tabBar = h(
+        'nav',
+        { className: 'dshsync-tabs', role: 'tablist' },
+        [
+          ['backup', '备份'],
+          ['restore', '恢复 / 导入'],
+          ['advanced', '高级'],
+        ].map(([id, labelText]) =>
+          h(
+            'button',
+            { key: id, type: 'button', role: 'tab', 'aria-selected': tab === id, className: tab === id ? 'on' : '', onClick: () => setTab(id) },
+            labelText,
+          ),
+        ),
+      );
 
+      /** 备份页 */
+      const backupTab = h(
+        React.Fragment,
+        null,
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '同步配置'),
+          h('h3', null, '备份内容'),
+          h('p', { className: 'dshsync-hint' }, '选择哪些内容进入备份。体积与文件数是本机实时统计。'),
           h(
             'div',
-            { className: 'dshsync-profilebar' },
-            h(
-              'select',
-              { className: 'dshsync-input dshsync-select', value: config?.active ?? '', onChange: (event) => switchProfile(event.target.value) },
-              (config?.names ?? []).map((name) => h('option', { key: name, value: name }, name)),
-            ),
-            h(Button, { onClick: () => setNaming({ mode: 'create', value: '' }), disabled: Boolean(busy) }, '新建'),
-            h(Button, { onClick: () => setNaming({ mode: 'rename', value: config?.active ?? '' }), disabled: Boolean(busy) }, '重命名'),
-            h(Button, { danger: confirmDelete, onClick: removeProfile, disabled: Boolean(busy) }, confirmDelete ? '确认删除' : '删除'),
-          ),
-          naming
-            ? h(
+            { className: 'dshsync-modules' },
+            modules.map((module) => {
+              const checked = module.required || (form.include?.[module.id] ?? module.defaultOn);
+              const asking = module.sensitive && privacyAck[module.id] === 'ask';
+              return h(
                 'div',
-                { className: 'dshsync-naming' },
-                h('input', {
-                  className: 'dshsync-input',
-                  value: naming.value,
-                  autoFocus: true,
-                  placeholder: naming.mode === 'create' ? '给这个同步配置起个名字，例如「家里的 R2」' : '新的名称',
-                  onChange: (event) => setNaming({ ...naming, value: event.target.value }),
-                  onKeyDown: (event) => {
-                    if (event.key === 'Enter') confirmNaming();
-                    if (event.key === 'Escape') setNaming(null);
-                  },
-                }),
-                h(Button, { primary: true, onClick: confirmNaming, disabled: Boolean(busy) }, '确定'),
-                h(Button, { onClick: () => setNaming(null) }, '取消'),
-              )
-            : null,
+                { key: module.id, className: `dshsync-module${module.sensitive ? ' sensitive' : ''}` },
+                h(
+                  'div',
+                  { className: 'dshsync-modulerow' },
+                  h('label', { className: 'dshsync-modulelabel' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked,
+                      disabled: module.required || Boolean(busy),
+                      onChange: () => onToggleModule(module),
+                    }),
+                    h('span', null, module.label),
+                    module.sensitive ? h('span', { className: 'dshsync-badge' }, '含隐私') : null,
+                    h(Info, { text: module.sensitive ? `${module.hint}。${PRIVACY_NOTICE}` : module.hint }),
+                  ),
+                  h('span', { className: 'dshsync-modulestats' },
+                    module.present ? `${module.files} 个文件 · ${bytesText(module.bytes)}` : '本机没有此内容',
+                  ),
+                ),
+                asking
+                  ? h(
+                      'div',
+                      { className: 'dshsync-privacy' },
+                      h('p', null, PRIVACY_NOTICE),
+                      h(
+                        'div',
+                        { className: 'dshsync-actions dshsync-actions-tight' },
+                        h(Button, { primary: true, onClick: () => { setPrivacyAck((current) => ({ ...current, [module.id]: true })); applyModuleToggle(module.id, true); } }, '我已了解，启用'),
+                        h(Button, { onClick: () => setPrivacyAck((current) => ({ ...current, [module.id]: false })) }, '取消'),
+                      ),
+                    )
+                  : null,
+              );
+            }),
+            extras.map((extra) =>
+              h(
+                'div',
+                { key: extra.id, className: 'dshsync-module' },
+                h(
+                  'div',
+                  { className: 'dshsync-modulerow' },
+                  h('span', { className: 'dshsync-modulelabel' }, h('span', null, extra.label), h(Info, { text: 'include.extraPaths 里配置的附加目录（本页暂不提供编辑，可用对话设置）' })),
+                  h('span', { className: 'dshsync-modulestats' }, extra.present ? `${extra.files} 个文件 · ${bytesText(extra.bytes)}` : '不存在'),
+                ),
+              ),
+            ),
+          ),
           h(Row, { label: '加密方式', value: config?.security ?? '读取中…' }),
         ),
 
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '1. 备份到哪里'),
+          h('h3', null, '存储目标'),
           h(
             'div',
             { className: 'dshsync-seg' },
-            ['s3', 'webdav', 'local'].map((value) => h('button', { key: value, type: 'button', className: kind === value ? 'on' : '', onClick: () => setKind(value) }, KIND_LABEL[value])),
+            ['s3', 'webdav', 'local'].map((value) => h('button', { key: value, type: 'button', className: kind === value ? 'on' : '', onClick: () => { setKind(value); setDirty(true); } }, KIND_LABEL[value])),
           ),
           kindFields(),
           h(Field, { label: '对象前缀', hint: '同一个 bucket 里区分不同机器/账号' }, h(Text, { value: form.prefix, onChange: (v) => set('prefix', v) })),
@@ -536,7 +729,7 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '2. 加密口令'),
+          h('h3', null, '加密口令'),
           h(
             Field,
             {
@@ -575,23 +768,199 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '3. 自动同步'),
+          h('h3', null, '自动备份'),
           h('label', { className: 'dshsync-check' }, h('input', { type: 'checkbox', checked: form.scheduleEnabled === true, onChange: (event) => set('scheduleEnabled', event.target.checked) }), '定时自动备份这个配置'),
           h('div', { className: 'dshsync-inline' }, h('span', { className: 'dshsync-label' }, '间隔'), h(Text, { value: String(form.intervalMinutes ?? 30), onChange: (v) => set('intervalMinutes', v) }), h('span', { className: 'dshsync-label' }, '分钟（内容无变化时不会上传）')),
         ),
 
         h(
-          'div',
-          { className: 'dshsync-actions' },
-          h(Button, { onClick: onSave, disabled: Boolean(busy) }, busy === 'save' ? '保存中…' : '保存'),
-          h(Button, { onClick: onTest, disabled: Boolean(busy) }, busy === 'test' ? '测试中…' : '测试连接'),
-          h(Button, { primary: true, onClick: onPush, disabled: Boolean(busy) }, busy === 'push' ? '备份中…' : '立即备份'),
+          'section',
+          { className: 'dshsync-card' },
+          h('h3', null, '操作'),
+          dirty
+            ? h('div', { className: 'dshsync-dirtybar' }, '有未保存的修改。测试连接 / 立即备份会先保存这些修改。')
+            : null,
+          h(
+            'div',
+            { className: 'dshsync-actions' },
+            h(Button, { onClick: onSave, disabled: Boolean(busy) }, busy === 'save' ? '保存中…' : '保存'),
+            h(Button, { onClick: onTest, disabled: Boolean(busy) }, busy === 'test' ? '测试中…' : '测试连接'),
+            h(Button, { primary: true, onClick: onPush, disabled: Boolean(busy) }, busy === 'push' ? '备份中…' : '立即备份'),
+          ),
+          h(Progress, { stage: busy === 'push' || busy === 'test' || busy === 'save' ? stage : '' }),
+          h(Feedback, { feedback: feedback.save }),
+          h(Feedback, { feedback: feedback.test }),
+          h(Feedback, { feedback: feedback.push }),
+        ),
+      );
+
+      /** 恢复页 */
+      const restoreTab = h(
+        React.Fragment,
+        null,
+        h(
+          'section',
+          { className: 'dshsync-card' },
+          h('h3', null, '从云端恢复'),
+          h(
+            'p',
+            { className: 'dshsync-hint' },
+            kind === 'local' || status?.target?.kind === 'local'
+              ? `本地模式：把另一台机器的 latest.json 和 snapshots 目录拷到目标目录（${status?.target?.path ?? '见存储目标'} 下 ${form.prefix || 'dsh-sync'}）后，这里会自动列出。`
+              : '只要目标与口令一致，就能读到这台机器以及其他设备推上去的快照。',
+          ),
+          snapshots.length === 0
+            ? h('div', { className: 'dshsync-note warn' }, '还没有读到快照。先在「备份」页配置目标与口令并备份一次；或用下面的「从文件导入」。')
+            : h(
+                'label',
+                { className: 'dshsync-field' },
+                h('span', { className: 'dshsync-label' }, '选择要恢复的快照'),
+                h(
+                  'select',
+                  {
+                    className: 'dshsync-input dshsync-select',
+                    value: selectedSnapshot,
+                    onChange: (event) => {
+                      setSelectedSnapshot(event.target.value);
+                      setPlan(null);
+                      setConfirmRestore(false);
+                    },
+                  },
+                  snapshots.map((snapshot) =>
+                    h(
+                      'option',
+                      { key: snapshot.key, value: snapshot.key },
+                      `${snapshot.label || snapshot.name}${snapshot.isLatest ? ' · 最新' : ''}（${snapshot.size}）`,
+                    ),
+                  ),
+                ),
+              ),
+          h(
+            'div',
+            { className: 'dshsync-actions' },
+            h(Button, { onClick: onRefreshSnapshots, disabled: Boolean(busy) }, busy === 'snapshots' ? '读取中…' : '刷新列表'),
+            h(Button, { primary: true, onClick: onPreview, disabled: Boolean(busy) || !selectedSnapshot }, busy === 'preview' ? '读取中…' : '预览选中的快照'),
+          ),
+          h(Feedback, { feedback: feedback.snapshots }),
+          h(Feedback, { feedback: feedback.preview }),
         ),
 
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '状态'),
+          h('h3', null, '从文件导入'),
+          h('p', { className: 'dshsync-hint' }, '手里是压缩包或零散文件？解压后直接指定 .dshsync 文件（或包含它的目录），不需要摆成目标目录结构。'),
+          h(Text, {
+            value: filePath,
+            placeholder: '点下面选择文件/文件夹，或直接粘贴路径',
+            onChange: (v) => setFilePath(v),
+          }),
+          h(
+            'div',
+            { className: 'dshsync-actions' },
+            h(Button, { onClick: () => onPick('file'), disabled: Boolean(busy) }, busy === 'pick-file' ? '等待选择…' : '选择文件…'),
+            h(Button, { onClick: () => onPick('folder'), disabled: Boolean(busy) }, busy === 'pick-folder' ? '等待选择…' : '选择文件夹…'),
+            h(Button, { primary: true, onClick: onPreviewFile, disabled: Boolean(busy) || !filePath.trim() }, busy === 'previewFile' ? '读取中…' : '预览这个文件'),
+          ),
+          h(Feedback, { feedback: feedback['pick-file'] }),
+          h(Feedback, { feedback: feedback['pick-folder'] }),
+          h(Feedback, { feedback: feedback.previewFile }),
+        ),
+
+        plan
+          ? h(
+              'section',
+              { className: 'dshsync-card plan' },
+              h('h3', null, plan.dryRun === false ? '恢复结果' : '恢复预览'),
+              h(Row, { label: '快照时间', value: timeText(plan.createdAt) }),
+              h(Row, { label: '来源设备', value: `${plan.device ?? '—'} · 配置「${plan.profileOfSnapshot ?? plan.profile ?? '—'}」` }),
+              h(Row, { label: plan.dryRun === false ? '已写入文件' : '将改动文件', value: `${plan.changes ?? plan.written} 个` }),
+              plan.bundles && plan.bundles.missing && plan.bundles.missing.length > 0 && plan.dryRun === false
+                ? h(Row, { label: '插件安装', value: `已自动安装 ${plan.bundles.missing.length} 个插件包（${plan.bundles.missing.map((bundle) => bundle.name).join('、')}）`, tone: 'ok' })
+                : null,
+              planItems.length > 0
+                ? h(
+                    'div',
+                    null,
+                    h('ul', { className: 'dshsync-list' }, planItems.map((item) => h('li', { key: `${item.path}-${item.action}` }, `${item.path}（${item.action}）`))),
+                    (plan.sample ?? []).length > 12 && plan.dryRun !== false
+                      ? h('button', { type: 'button', className: 'dshsync-linkbtn', onClick: () => setShowAllPlan((current) => !current) }, showAllPlan ? '收起' : `展开全部 ${plan.sample.length} 条`)
+                      : null,
+                  )
+              : null,
+              plan.dryRun === false && plan.warnings && plan.warnings.length > 0 ? h('div', { className: 'dshsync-note warn' }, plan.warnings.join('；')) : null,
+              plan.dryRun !== false && plan.warnings && plan.warnings.length > 0 ? h('div', { className: 'dshsync-note warn' }, plan.warnings.join('；')) : null,
+              plan.dryRun === false
+                ? h('div', { className: 'dshsync-note ok' }, `恢复完成。${plan.restartRequired ? '已改到 profile，请完全退出 DSH 再打开。' : ''}${plan.backupDir ? ` 被覆盖文件的备份在 ${plan.backupDir}` : ''}`)
+                : plan.dryRun && plan.changes > 0
+                  ? h(
+                      React.Fragment,
+                      null,
+                      confirmRestore
+                        ? h('div', { className: 'dshsync-note warn' }, '恢复会覆盖上表列出的本机文件（覆盖前会自动备份到 backups/ 目录，不删除本机独有的文件）。')
+                        : null,
+                      h(
+                        'div',
+                        { className: 'dshsync-actions' },
+                        h(Button, { primary: true, danger: confirmRestore, onClick: confirmRestore ? onApply : () => setConfirmRestore(true), disabled: Boolean(busy) }, busy === 'apply' ? '恢复中…' : confirmRestore ? '确认：覆盖这些文件' : '确认恢复到本机'),
+                        h(Button, { onClick: () => { setPlan(null); setConfirmRestore(false); } }, '取消'),
+                      ),
+                      h(Progress, { stage: busy === 'apply' ? stage : '' }),
+                    )
+                  : null,
+              h(Feedback, { feedback: feedback.apply }),
+            )
+          : null,
+      );
+
+      /** 高级页 */
+      const advancedTab = h(
+        React.Fragment,
+        null,
+        h(
+          'section',
+          { className: 'dshsync-card' },
+          h('h3', null, '命名配置'),
+          h('p', { className: 'dshsync-hint' }, '每个配置对应一个云端目标和一套口令。日常切换在页顶下拉框；这里管理名字与删除。'),
+          h(
+            'div',
+            { className: 'dshsync-profilebar' },
+            h(
+              'select',
+              { className: 'dshsync-input dshsync-select', value: config?.active ?? '', onChange: (event) => switchProfile(event.target.value) },
+              (config?.names ?? []).map((name) => h('option', { key: name, value: name }, name)),
+            ),
+            h(Button, { onClick: () => setNaming({ mode: 'create', value: '' }), disabled: Boolean(busy) }, '新建'),
+            h(Button, { onClick: () => setNaming({ mode: 'rename', value: config?.active ?? '' }), disabled: Boolean(busy) }, '重命名'),
+            h(Button, { danger: confirmDelete, onClick: removeProfile, disabled: Boolean(busy) }, confirmDelete ? '确认删除' : '删除'),
+          ),
+          naming
+            ? h(
+                'div',
+                { className: 'dshsync-naming' },
+                h('input', {
+                  className: 'dshsync-input',
+                  value: naming.value,
+                  autoFocus: true,
+                  placeholder: naming.mode === 'create' ? '给这个同步配置起个名字，例如「家里的 R2」' : '新的名称',
+                  onChange: (event) => setNaming({ ...naming, value: event.target.value }),
+                  onKeyDown: (event) => {
+                    if (event.key === 'Enter') confirmNaming();
+                    if (event.key === 'Escape') setNaming(null);
+                  },
+                }),
+                h(Button, { primary: true, onClick: confirmNaming, disabled: Boolean(busy) }, '确定'),
+                h(Button, { onClick: () => setNaming(null) }, '取消'),
+              )
+            : null,
+          h(Feedback, { feedback: feedback.naming }),
+          h(Feedback, { feedback: feedback.delete }),
+        ),
+
+        h(
+          'section',
+          { className: 'dshsync-card' },
+          h('h3', null, '状态详情'),
           h(Row, { label: '当前配置', value: `${statusProfileName}${status?.profile?.names?.length > 1 ? `（共 ${status.profile.names.length} 个）` : ''}` }),
           h(Row, {
             label: '备份目标',
@@ -617,108 +986,49 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '恢复 / 导入'),
-          h(
-            'p',
-            { className: 'dshsync-hint' },
-            kind === 'local'
-              ? `本地模式：把另一台机器的 latest.json 和 snapshots 目录拷到「${status?.target?.path ?? '目标目录'}${
-                  status?.target?.path ? (status.target.path.includes('\\') ? '\\' : '/') : ''
-                }${form.prefix || 'dsh-sync'}」下，点“刷新列表”；也可以不走目录，直接在下面指定快照文件。`
-              : '云端模式：只要目标与口令一致，就能读到这台机器以及其他机器推上去的快照。',
-          ),
-          snapshots.length === 0
-            ? h('div', { className: 'dshsync-note warn' }, '还没有读到快照。确认目标与口令后点“刷新列表”；本地模式请先拷贝 latest.json 与 snapshots 目录。')
-            : h(
-                'label',
-                { className: 'dshsync-field' },
-                h('span', { className: 'dshsync-label' }, '选择要恢复的快照'),
-                h(
-                  'select',
-                  {
-                    className: 'dshsync-input dshsync-select',
-                    value: selectedSnapshot,
-                    onChange: (event) => {
-                      setSelectedSnapshot(event.target.value);
-                      setPlan(null);
-                    },
-                  },
-                  snapshots.map((snapshot) =>
-                    h(
-                      'option',
-                      { key: snapshot.key, value: snapshot.key },
-                      `${snapshot.label || snapshot.name}${snapshot.isLatest ? ' · 最新' : ''}（${snapshot.size}）`,
-                    ),
-                  ),
-                ),
-              ),
-          h(
-            'div',
-            { className: 'dshsync-field' },
-            h('span', { className: 'dshsync-label' }, '或者：直接指定备份文件 / 解压后的目录'),
-            h(
-              'div',
-              { className: 'dshsync-inlinerow' },
-              h(Text, {
-                value: filePath,
-                placeholder: '点下面的“选择文件…”或“选择文件夹…”，也可以直接粘贴路径',
-                onChange: setFilePath,
-              }),
-            ),
-            h(
-              'div',
-              { className: 'dshsync-actions dshsync-actions-tight' },
-              h(Button, { onClick: () => onPick('file'), disabled: Boolean(busy) }, busy === 'pick-file' ? '等待选择…' : '选择文件…'),
-              h(Button, { onClick: () => onPick('folder'), disabled: Boolean(busy) }, busy === 'pick-folder' ? '等待选择…' : '选择文件夹…'),
-              h(Button, { onClick: onPreviewFile, disabled: Boolean(busy) || !filePath.trim() }, busy === 'previewFile' ? '读取中…' : '预览这个文件'),
-            ),
-            h('span', { className: 'dshsync-hint' }, '支持单个 .dshsync 文件，或包含快照的目录（例如解压出来的 dsh-sync 文件夹、它的 snapshots 子目录）。'),
-          ),
-          h(
-            'div',
-            { className: 'dshsync-actions' },
-            h(Button, { onClick: onRefreshSnapshots, disabled: Boolean(busy) }, busy === 'snapshots' ? '读取中…' : '刷新列表'),
-            h(Button, { primary: true, onClick: onPreview, disabled: Boolean(busy) || !selectedSnapshot }, busy === 'preview' ? '读取中…' : '预览选中的快照'),
-          ),
-          plan
-            ? h(
-                React.Fragment,
-                null,
-                h(Row, { label: '快照时间', value: timeText(plan.createdAt) }),
-                h(Row, { label: '来源设备', value: `${plan.device ?? '—'} · 配置「${plan.profileOfSnapshot ?? plan.profile ?? '—'}」` }),
-                h(Row, { label: '改动文件', value: `${plan.changes ?? plan.written} 个` }),
-                plan.sample && plan.sample.length > 0
-                  ? h('ul', { className: 'dshsync-list' }, plan.sample.slice(0, 30).map((item) => h('li', { key: `${item.path}-${item.action}` }, `${item.path}（${item.action}）`)))
-                  : null,
-                plan.warnings && plan.warnings.length > 0 ? h('div', { className: 'dshsync-note warn' }, plan.warnings.join('；')) : null,
-                plan.dryRun && plan.changes === 0 ? h('div', { className: 'dshsync-note ok' }, '没有需要改动的文件。') : null,
-                plan.dryRun && plan.changes > 0
-                  ? h(
-                      'div',
-                      { className: 'dshsync-actions' },
-                      h(Button, { primary: true, onClick: onApply, disabled: Boolean(busy) }, busy === 'apply' ? '恢复中…' : '确认恢复到本机'),
-                      h(Button, { onClick: () => setPlan(null) }, '取消'),
-                    )
-                  : null,
-                plan.dryRun === false ? h('div', { className: 'dshsync-note ok' }, '恢复完成。改到了 profile 的话，请完全退出 DSH 再打开。') : null,
-              )
-            : null,
+          h('h3', null, '数据与日志'),
+          h(Row, { label: 'DSH 目录', value: status?.paths?.home ?? '—' }),
+          h(Row, { label: '配置档案', value: status?.paths?.profile ?? '—' }),
+          h(Row, { label: '插件数据', value: status?.paths?.data ?? '~/.dsh/dsh-sync' }),
+          h('p', { className: 'dshsync-foot' }, '配置以密文保存在 ~/.dsh/dsh-sync/config.json；日志在 ~/.dsh/dsh-sync/sync.log；恢复前被覆盖的文件备份在 ~/.dsh/dsh-sync/backups/。'),
         ),
+      );
 
-        h('p', { className: 'dshsync-foot' }, '配置以密文保存在 ~/.dsh/dsh-sync/config.json；恢复会先把被覆盖的文件备份到 backups/，不会删除本机独有的文件。'),
+      return h(
+        'div',
+        { className: 'dshsync-root' },
+        h('style', null, CSS),
+        h('h2', null, 'DSH 同步'),
+        h('p', { className: 'dshsync-sub' }, '把插件、设置、技能等个人配置加密备份到云端，换电脑后一键恢复。'),
+        globalNotice ? h('div', { className: `dshsync-note ${globalNotice.tone} toast` }, globalNotice.text) : null,
+        statusHeader,
+        tabBar,
+        tab === 'backup' ? backupTab : tab === 'restore' ? restoreTab : advancedTab,
       );
     }
 
     const CSS = `
 .dshsync-root { padding: 4px 24px 48px; max-width: 780px; color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 1.5; }
 .dshsync-root h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
-.dshsync-sub { margin: 0 0 18px; color: var(--dsw-alias-label-secondary); }
+.dshsync-sub { margin: 0 0 14px; color: var(--dsw-alias-label-secondary); }
+.dshsync-statusbar { display: flex; align-items: center; gap: 8px; background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; flex-wrap: wrap; }
+.dshsync-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dshsync-dot.ok { background: var(--dsw-alias-state-success-primary); }
+.dshsync-dot.warn { background: var(--dsw-alias-state-warn-primary); }
+.dshsync-dot.err { background: var(--dsw-alias-state-error-primary); }
+.dshsync-statusmain { font-weight: 600; }
+.dshsync-statusmeta { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dshsync-statusspacer { flex: 1; }
+.dshsync-tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.dshsync-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; font-size: 13px; font-family: inherit; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.dshsync-tabs button.on { color: var(--dsw-alias-label-primary); font-weight: 600; border-bottom-color: var(--dsw-alias-brand-primary); }
 .dshsync-card { background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
 .dshsync-card h3 { margin: 0 0 12px; font-size: 13px; font-weight: 600; }
+.dshsync-card.plan { border-color: var(--dsw-alias-border-l2); }
 .dshsync-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; position: relative; }
 .dshsync-labelrow { display: flex; align-items: center; gap: 6px; }
 .dshsync-label { color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.dshsync-hint { color: var(--dsw-alias-label-secondary); font-size: 11px; opacity: .8; }
+.dshsync-hint { color: var(--dsw-alias-label-secondary); font-size: 11px; opacity: .8; margin: 0 0 10px; }
 .dshsync-input { background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; outline: none; width: 100%; box-sizing: border-box; }
 .dshsync-input:focus { border-color: var(--dsw-alias-brand-primary); }
 .dshsync-input[readonly] { color: var(--dsw-alias-label-secondary); letter-spacing: 2px; }
@@ -732,17 +1042,24 @@ window.__ModuleLoader__.load({
 .dshsync-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); margin: 4px 0 10px; }
 .dshsync-inline { display: flex; align-items: center; gap: 8px; }
 .dshsync-inline .dshsync-input { width: 84px; }
-.dshsync-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 18px; }
+.dshsync-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 10px; }
 .dshsync-actions-tight { margin: 0 0 6px; }
 .dshsync-btn { border-radius: 8px; border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); padding: 7px 14px; font-size: 12px; font-family: inherit; cursor: pointer; white-space: nowrap; }
 .dshsync-btn:hover { border-color: var(--dsw-alias-border-l2); }
 .dshsync-btn.primary { background: var(--dsw-alias-brand-primary); border-color: transparent; color: #fff; font-weight: 600; }
 .dshsync-btn.danger { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
+.dshsync-btn.ghost { border-color: transparent; background: transparent; }
 .dshsync-btn:disabled { opacity: .55; cursor: default; }
-.dshsync-note { background: var(--dsw-alias-bg-layer-2); border-left: 3px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 12px; white-space: pre-wrap; }
+.dshsync-linkbtn { background: none; border: 0; color: var(--dsw-alias-brand-primary); cursor: pointer; font-size: 12px; font-family: inherit; padding: 4px 0; }
+.dshsync-note { background: var(--dsw-alias-bg-layer-2); border-left: 3px solid var(--dsw-alias-border-l2); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; white-space: pre-wrap; }
 .dshsync-note.ok { border-left-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
 .dshsync-note.warn { border-left-color: var(--dsw-alias-state-warn-primary); color: var(--dsw-alias-state-warn-primary); }
 .dshsync-note.err { border-left-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
+.dshsync-note.toast { position: sticky; top: 8px; z-index: 30; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+.dshsync-progress { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; margin-bottom: 10px; }
+.dshsync-spinner { width: 12px; height: 12px; border: 2px solid var(--dsw-alias-border-l2); border-top-color: var(--dsw-alias-brand-primary); border-radius: 50%; animation: dshsync-spin .8s linear infinite; }
+@keyframes dshsync-spin { to { transform: rotate(360deg); } }
+.dshsync-dirtybar { background: var(--dsw-alias-bg-layer-2); border-left: 3px solid var(--dsw-alias-state-warn-primary); border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; color: var(--dsw-alias-label-secondary); }
 .dshsync-kv { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px dashed var(--dsw-alias-border-l1); }
 .dshsync-kv:last-child { border-bottom: 0; }
 .dshsync-k { color: var(--dsw-alias-label-secondary); flex: none; }
@@ -750,8 +1067,7 @@ window.__ModuleLoader__.load({
 .dshsync-v.ok { color: var(--dsw-alias-state-success-primary); }
 .dshsync-v.warn { color: var(--dsw-alias-state-warn-primary); }
 .dshsync-v.err { color: var(--dsw-alias-state-error-primary); }
-.dshsync-list { margin: 8px 0 0; padding-left: 18px; color: var(--dsw-alias-label-secondary); font-size: 12px; max-height: 220px; overflow: auto; }
-.dshsync-details { margin-top: 10px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.dshsync-list { margin: 8px 0 0; padding-left: 18px; color: var(--dsw-alias-label-secondary); font-size: 12px; max-height: 260px; overflow: auto; }
 .dshsync-foot { color: var(--dsw-alias-label-secondary); font-size: 11px; margin: 4px 0 0; }
 .dshsync-profilebar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
 .dshsync-select { flex: 1; cursor: pointer; }
@@ -765,6 +1081,15 @@ window.__ModuleLoader__.load({
 .dshsync-rules li.ok { color: var(--dsw-alias-state-success-primary); }
 .dshsync-rules li.bad { color: var(--dsw-alias-state-error-primary); }
 .dshsync-invalid { color: var(--dsw-alias-state-error-primary); font-size: 11px; margin: 2px 0 4px; }
+.dshsync-modules { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.dshsync-module { border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; padding: 8px 12px; }
+.dshsync-module.sensitive { border-color: var(--dsw-alias-state-warn-primary); }
+.dshsync-modulerow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dshsync-modulelabel { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.dshsync-modulestats { color: var(--dsw-alias-label-secondary); font-size: 11px; flex: none; }
+.dshsync-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-state-warn-primary); border: 1px solid var(--dsw-alias-state-warn-primary); }
+.dshsync-privacy { margin-top: 8px; border-top: 1px dashed var(--dsw-alias-border-l1); padding-top: 8px; }
+.dshsync-privacy p { margin: 0 0 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); line-height: 1.6; }
 `;
 
     return {
