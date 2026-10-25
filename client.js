@@ -1115,7 +1115,8 @@ window.__ModuleLoader__.load({
 .dshsync-actions-tight { margin: 0 0 6px; }
 .dshsync-btn { border-radius: 8px; border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); padding: 7px 14px; font-size: 12px; font-family: inherit; cursor: pointer; white-space: nowrap; }
 .dshsync-btn:hover { border-color: var(--dsw-alias-border-l2); }
-.dshsync-btn.primary { background: var(--dsw-alias-brand-primary); border-color: transparent; color: #fff; font-weight: 600; }
+.dshsync-btn.primary { background: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary)); border-color: transparent; color: var(--dsw-alias-label-primary-foreground, #fff); font-weight: 600; }
+.dshsync-btn.primary:hover { background: var(--dsw-alias-button-primary-hover, var(--dsw-alias-brand-primary)); border-color: transparent; }
 .dshsync-btn.danger { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
 .dshsync-btn.ghost { border-color: transparent; background: transparent; }
 .dshsync-btn:disabled { opacity: .55; cursor: default; }
