@@ -1406,9 +1406,82 @@ window.__ModuleLoader__.load({
 .dshsync-privacy p { margin: 0 0 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); line-height: 1.6; }
 `;
 
+    /** 设置页签的当前文案——slot label thunk 与导航图标认领共用同一来源。 */
+    function sectionLabel() {
+      return (document.documentElement?.lang || navigator.language || 'zh').toLowerCase().startsWith('zh') ? '同步' : 'Sync';
+    }
+
+    /**
+     * 设置导航的自定义图标。
+     *
+     * DSH 的设置导航图标来自封闭的内置区块 id 列表，settings.section 只投影
+     * id/order/label——第三方区块一律回退默认齿轮（slot 契约如此）。与
+     * dsh-market / dsh-better-sidebar 相同的解法：面板挂载后认领自己的导航行，
+     * 用 CSS mask（currentColor 跟随主题与选中态）把齿轮换成云同步标记。
+     * 语言切换后行文本变化，MutationObserver 重新认领。等 settings.section
+     * 原生支持 icon 字段后可整体移除。
+     */
+    function installSettingsNavIcon(ctx, resolveLabel) {
+      if (typeof document === 'undefined') return;
+      ctx.effect(() => {
+        // mask 只读 alpha：纯黑绘制，可见颜色来自 currentColor。
+        const maskSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g fill="none" stroke="#000" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M30 66 C21 66 14 59 14 50.5 C14 42.5 20 36 27.8 35.3 C29.5 26.5 37.3 20 46.5 20 C55.2 20 62.6 25.7 64.8 33.6 C66.5 33.2 68.2 33 70 33 C79.4 33 87 40.6 87 50 C87 58.8 80 65.8 71.2 66"/><path d="M40 45 H 60"/><path d="M60 58.5 H 40"/></g><path fill="#000" d="M56.5 39.5 L 64.5 45 L 56.5 50.5 Z"/><path fill="#000" d="M43.5 54 L 35.5 58.5 L 43.5 64 Z"/></svg>`;
+        const maskUrl = `data:image/svg+xml,${encodeURIComponent(maskSvg)}`;
+        const MARKER = 'data-dsh-sync-nav-icon';
+        const ROW_SELECTOR = '[role="dialog"] nav button';
+        const tag = document.createElement('style');
+        tag.dataset.plugin = 'dsh-sync';
+        tag.textContent = [
+          `[${MARKER}] > svg { display: none; }`,
+          `[${MARKER}]::before {`,
+          `  content: '';`,
+          `  flex: none;`,
+          `  width: 16px;`,
+          `  height: 16px;`,
+          `  background-color: currentColor;`,
+          `  -webkit-mask-image: url("${maskUrl}");`,
+          `  mask-image: url("${maskUrl}");`,
+          `  -webkit-mask-repeat: no-repeat;`,
+          `  mask-repeat: no-repeat;`,
+          `  -webkit-mask-position: center;`,
+          `  mask-position: center;`,
+          `  -webkit-mask-size: 16px 16px;`,
+          `  mask-size: 16px 16px;`,
+          `}`,
+        ].join('\n');
+        document.head.appendChild(tag);
+        let disposed = false;
+        let scheduled = false;
+        const sync = () => {
+          scheduled = false;
+          if (disposed) return;
+          const wanted = resolveLabel();
+          for (const row of document.querySelectorAll(ROW_SELECTOR)) {
+            if ((row.textContent ?? '').trim() === wanted) row.setAttribute(MARKER, '');
+            else row.removeAttribute(MARKER);
+          }
+        };
+        const schedule = () => {
+          if (scheduled || disposed) return;
+          scheduled = true;
+          queueMicrotask(sync);
+        };
+        sync();
+        const observer = new MutationObserver(schedule);
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+        return () => {
+          disposed = true;
+          observer.disconnect();
+          for (const row of document.querySelectorAll(`[${MARKER}]`)) row.removeAttribute(MARKER);
+          tag.remove();
+        };
+      });
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
+        installSettingsNavIcon(ctx, sectionLabel);
         ctx.slots.inject('settings.section', () =>
           // label 用 thunk：DSH 在 locale revision 变化时重新求值（resolveSlotLabel），
           // 语言切换后导航文字即时跟随；<html lang> 由 DSH 实时写入。
@@ -1417,7 +1490,7 @@ window.__ModuleLoader__.load({
               name: 'settings.section',
               id: 'dsh-sync',
               order: 25,
-              label: () => ((document.documentElement?.lang || navigator.language || 'zh').toLowerCase().startsWith('zh') ? '同步' : 'Sync'),
+              label: sectionLabel,
             },
             SyncSettings,
           ),

@@ -1,5 +1,11 @@
 # 更新日志
 
+## 0.6.3（2026-10-26）
+
+### 新增
+
+- **设置导航显示云同步图标**：DSH 的设置导航图标来自封闭的内置区块 id 列表，`settings.section` 只投影 id/order/label，第三方区块一律回退默认齿轮（slot 契约无 icon 字段）。与 dsh-market / dsh-better-sidebar 相同的社区方案：面板挂载后认领本插件的导航行（按当前语言文本匹配），用 CSS mask 以 `currentColor` 绘制云同步标记——颜色自动跟随主题与选中态；语言切换后行文本变化由 MutationObserver 重新认领。全部生命周期挂在 ctx.effect 上，插件卸载即清理。DSH 原生支持 icon 字段后可移除该模块。
+
 ## 0.6.2（2026-10-26）
 
 ### 修复
