@@ -17,6 +17,7 @@
 | 模块 | 归档前缀 | 本机来源 | 默认 | 内容 |
 | --- | --- | --- | --- | --- |
 | DSH 配置档案 | `profile/` | `profiles/<profile>/` 白名单 | **必选** | `package.json`（插件清单）、`cordis.patch.yml`（**所有插件配置、MCP 服务器、模型/界面偏好**）、`cordis.yml`、`pnpm-workspace.yaml`、`pnpm-lock.yaml`、`.dsh-market/state.json` |
+| 本地目录插件 | `local-plugins/` | `link:`/`file:` 依赖的源目录 | 开 | 非市场插件源码（不含各自 node_modules）。恢复时自动释放并重新链接，**无需手工重装**；会增大备份体积 |
 | 机器级补丁 | `home/` | `$DSH_HOME/cordis.patch.yml` | 开 | 用户级 patch |
 | DSH 自建技能 | `skills-dsh/` | `$DSH_HOME/skills/` | 开 | 自建 skill（目录不存在自动跳过） |
 | 跨工具技能 | `skills-agents/` | `~/.agents/skills/` | 开 | 跨工具共享 skill |
@@ -176,7 +177,7 @@ Agent 会调用 `sync_profile`（create/select），之后 `sync_configure` 写�
 ## 7. 已知限制（0.4）
 
 - 不备份会话历史；不合并两台机器的并发修改（后写覆盖，靠备份回滚）。
-- `node_modules` 默认不同步：registry 插件靠 `pnpm install` 重装，本地链接插件需手工处理。
+- `node_modules` 默认不同步：registry 插件与本地目录插件靠恢复时自动 `pnpm install` 重装/重链（本地插件源码已在快照内）。
 - profile 按白名单备份 6 个文件：DSH 未来在 profile 根新增配置文件时，需要同步维护 `lib/collect.js` 的 `PROFILE_FILES`（恢复端对未知文件只告警不失败，不会丢数据）。
 - 归档整体在内存中处理，默认上限 256 MB（`limits.maxArchiveMB`）；开启 `nodeModules` 前请调大并确认内存。
 - 配置已整份加密落盘（`safeStorage` / DPAPI，退回 AES-256-GCM + 本地密钥文件）；但同一系统用户下的恶意程序仍能调用系统解密接口，这一点由操作系统决定，插件无法绕过。

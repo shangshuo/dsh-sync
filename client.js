@@ -951,6 +951,20 @@ window.__ModuleLoader__.load({
                     tone: plan.dryRun === false ? 'ok' : undefined,
                   })
                 : null,
+              plan.localPlugins && plan.localPlugins.some((plugin) => plugin.action !== 'off')
+                ? h(Row, {
+                    label: '本地插件',
+                    value: [
+                      ...(plan.localPlugins.filter((plugin) => plugin.action === 'release').length > 0
+                        ? [`${plan.dryRun === false ? '已释放' : '将释放'} ${plan.localPlugins.filter((plugin) => plugin.action === 'release').length} 个：${plan.localPlugins.filter((plugin) => plugin.action === 'release').map((plugin) => plugin.name).join('、')}`]
+                        : []),
+                      ...(plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').length > 0
+                        ? [`保留本机版本 ${plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').length} 个：${plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').map((plugin) => plugin.name).join('、')}`]
+                        : []),
+                    ].join('；') || '—',
+                    tone: plan.dryRun === false ? 'ok' : undefined,
+                  })
+                : null,
               planItems.length > 0
                 ? h(
                     'div',

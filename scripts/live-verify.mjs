@@ -73,8 +73,14 @@ restoreEngine.store = store;
 
 const dry = await restoreEngine.pull({ dryRun: true });
 console.log(`✓ dryRun：将改动 ${dry.changes} 个文件（新增 ${dry.sample.filter((s) => s.action === 'add').length}）`);
+console.log(`✓ 本地插件计划：${JSON.stringify(dry.localPlugins)}`);
 assert.ok(dry.changes >= 2);
-assert.ok(dry.sample.some((s) => s.path === 'profile/package.json' && s.action === 'add'));
+// 副本的 package.json 已删除（模拟全新机器，没有任何本地插件依赖）→ 快照里的
+// @local/dsh-sync 源码应当被释放（release），恢复后即插即用。
+assert.ok(
+  dry.localPlugins?.some((plugin) => plugin.name === '@local/dsh-sync' && plugin.action === 'release'),
+  `全新机器应 release：${JSON.stringify(dry.localPlugins)}`,
+);
 
 const applied = await restoreEngine.pull({ dryRun: false, confirm: true });
 console.log(`✓ 恢复：写入 ${applied.written}，覆盖前备份 ${applied.backedUp}，restartRequired=${applied.restartRequired}`);
@@ -86,6 +92,26 @@ assert.deepEqual(
   JSON.parse(await fs.readFile(path.join(realProfileDir, 'package.json'), 'utf8')),
   'package.json 一致（link 依赖被 merge 保留时除外）',
 );
+
+// ---------- 3.5 本地插件释放 + keep-local 双语义 ----------
+// 全新机器语义：源码应已释放到固定目录。spec 改写在 self-restore 中会因
+// 「incoming 路径在本机有效而保留」（真换机时该路径不存在，改写行为由单测覆盖）。
+const releasedSpec = JSON.parse(await fs.readFile(path.join(copyProfile, 'package.json'), 'utf8')).dependencies['@local/dsh-sync'];
+const expectedRelease = path.join(root, 'dsh-sync', 'local-plugins', '%40local%2Fdsh-sync');
+console.log(`✓ 本地插件释放：spec=${releasedSpec}`);
+const devRepoIndex = path.join(os.homedir(), 'Documents', '项目开发工程', 'dsh-sync', 'index.js');
+assert.equal(await fs.readFile(path.join(expectedRelease, 'index.js'), 'utf8'), (await fs.readFile(devRepoIndex)).toString(), '插件源码已释放');
+// 保留本机语义：把副本 spec 改回有效链接 → 再恢复一次同一快照 → keep-local。
+const pkgPath = path.join(copyProfile, 'package.json');
+const pkgDoc = JSON.parse(await fs.readFile(pkgPath, 'utf8'));
+pkgDoc.dependencies['@local/dsh-sync'] = 'link:/Users/shuo/Documents/项目开发工程/dsh-sync';
+await fs.writeFile(pkgPath, JSON.stringify(pkgDoc, null, 2));
+const dry2 = await restoreEngine.pull({ dryRun: true });
+assert.ok(
+  dry2.localPlugins?.some((plugin) => plugin.name === '@local/dsh-sync' && plugin.action === 'keep-local'),
+  `有效链接应 keep-local：${JSON.stringify(dry2.localPlugins)}`,
+);
+console.log('✓ 本地插件双语义验证通过（新机器 release / 有效链接 keep-local）');
 
 // ---------- 4. 旧格式（0.3.x）兼容：构造含噪声条目的旧快照 ----------
 const oldEntries = [
