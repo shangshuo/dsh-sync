@@ -190,6 +190,13 @@ test('modules.preview reports per-module stats and honors include overrides', as
   const overriddenById = Object.fromEntries(overridden.value.value.modules.map((module) => [module.id, module]));
   assert.equal(overriddenById.mcpConnector.enabled, true);
   assert.equal(overriddenById.skillsDsh.enabled, false);
+
+  // x-dsh-sync-lang 头切换后端消息语言
+  const english = await invoke(env.server, { headers: { ...headers, 'x-dsh-sync-lang': 'en' }, body: { action: 'status' } });
+  const problems = english.value.value.status.problems;
+  assert.ok(problems.some((problem) => problem.includes('No sync target selected yet')), JSON.stringify(problems));
+  const chinese = await invoke(env.server, { headers, body: { action: 'status' } });
+  assert.ok(chinese.value.value.status.problems.some((problem) => problem.includes('尚未选择同步目标')), JSON.stringify(chinese.value.value.status.problems));
 });
 
 test('mountApi registers now, waits for a late web server, or reports the absence', () => {

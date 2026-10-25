@@ -19,24 +19,252 @@ window.__ModuleLoader__.load({
     const KIND_LABEL = { s3: 'S3 兼容', webdav: 'WebDAV', local: '本地目录', none: '未配置' };
     const DOTS = '••••••••';
 
+
+    // ===== i18n：跟随 DSH 的语言设置（<html lang> 由 DSH locale 机制实时写入）=====
+    const LANG = { current: 'zh' };
+    function detectLang() {
+      const raw = document.documentElement?.lang || navigator.language || 'zh';
+      return raw.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+    }
+    function applyLang() {
+      LANG.current = detectLang();
+    }
+    applyLang();
+    // 语言切换时的重渲染由 SyncSettings 内的 MutationObserver 驱动（需要触发 React 状态更新）。
+    /** 英文映射表：键 = 中文源文本（与后端 lib/i18n.js 同一“源文本作键”模式）。 */
+    const EN = {
+      'S3 兼容': 'S3-compatible',
+      '本地目录': 'Local folder',
+      '未配置': 'Not configured',
+      '至少 8 位': 'At least 8 characters',
+      '包含小写字母': 'Contains a lowercase letter',
+      '包含大写字母': 'Contains an uppercase letter',
+      '包含数字': 'Contains a digit',
+      '至少 1 个特殊符号（@ # $ * - _）': 'At least 1 symbol (@ # $ * - _)',
+      '只能使用字母、数字和 @ # $ * - _': 'Letters, digits and @ # $ * - _ only',
+      '空格': 'space',
+      '制表符': 'tab',
+      '换行': 'newline',
+      '只能使用': 'Letters, digits and @ # $ * - _ only',
+      '修改': 'Change',
+      '请输入': 'Enter',
+      '读取中…': 'Loading…',
+      '未知': 'Unknown',
+      '已设置': 'Set',
+      '取消': 'Cancel',
+      '确定': 'OK',
+      '含隐私': 'sensitive',
+      '我已了解，启用': 'I understand, enable',
+      '备份': 'Back up',
+      '恢复 / 导入': 'Restore / Import',
+      '高级': 'Advanced',
+      '备份内容': 'What to back up',
+      '本机没有此内容': 'Nothing here on this machine',
+      '加密方式': 'Encryption',
+      '存储目标': 'Storage target',
+      '对象前缀': 'Object prefix',
+      '加密口令': 'Passphrase',
+      '口令': 'Passphrase',
+      '自动备份': 'Automatic backup',
+      '定时自动备份这个配置': 'Back up this profile on a schedule',
+      '间隔': 'Interval',
+      '分钟（内容无变化时不会上传）': 'minutes (unchanged content is not uploaded)',
+      '操作': 'Actions',
+      '保存中…': 'Saving…',
+      '保存并继续': 'Save & continue',
+      '放弃修改': 'Discard changes',
+      '保存': 'Save',
+      '测试中…': 'Testing…',
+      '测试连接': 'Test connection',
+      '备份中…': 'Backing up…',
+      '立即备份': 'Back up now',
+      '从云端恢复': 'Restore from the cloud',
+      '点此复制': 'click to copy',
+      '还没有读到快照。先在「备份」页配置目标与口令并备份一次；或用下面的「从文件导入」。': 'No snapshots yet. Set the target and passphrase on the Back up tab and run a backup first, or use Import from file below.',
+      '选择要恢复的快照': 'Snapshot to restore',
+      '刷新列表': 'Refresh list',
+      '预览选中的快照': 'Preview selected snapshot',
+      '从文件导入': 'Import from file',
+      '等待选择…': 'Waiting for picker…',
+      '选择文件…': 'Choose file…',
+      '选择文件夹…': 'Choose folder…',
+      '预览这个文件': 'Preview this file',
+      '恢复结果': 'Restore result',
+      '恢复预览': 'Restore preview',
+      '快照时间': 'Snapshot time',
+      '来源设备': 'Source device',
+      '已写入文件': 'Files written',
+      '将改动文件': 'Files to change',
+      '插件安装': 'Plugin installs',
+      '本地插件': 'Local plugins',
+      '收起': 'Collapse',
+      '展开更多（至多 50 条）': 'Show more (up to 50)',
+      '恢复中…': 'Restoring…',
+      '确认：覆盖这些文件': 'Confirm: overwrite these files',
+      '确认恢复到本机': 'Restore to this machine',
+      '命名配置': 'Named profiles',
+      '新建': 'New',
+      '重命名': 'Rename',
+      '确认删除': 'Confirm delete',
+      '删除': 'Delete',
+      '新的名称': 'New name',
+      '状态详情': 'Status details',
+      '当前配置': 'Active profile',
+      '备份目标': 'Target',
+      '本地变更': 'Local changes',
+      '已是最新': 'Up to date',
+      '最近备份': 'Last backup',
+      '云端最新': 'Latest in cloud',
+      '定时同步': 'Schedule',
+      '已关闭': 'Off',
+      '配置待完善': 'Needs attention',
+      '数据与日志': 'Data & logs',
+      'DSH 目录': 'DSH home',
+      '配置档案': 'Profile',
+      '插件数据': 'Plugin data',
+      'DSH 同步': 'DSH Sync',
+      '同步': 'Sync',
+      '服务地址': 'Server URL',
+      '用户名': 'Username',
+      '密码 / 应用密码': 'Password / app password',
+      '基础路径（可选）': 'Base path (optional)',
+      '同步目录': 'Sync folder',
+      '未配置完整': 'Incomplete',
+      '有变更待备份': 'Changes pending',
+      '已同步': 'Synced',
+      '尚未备份': 'Not backed up yet',
+      '查看状态详情': 'View status details',
+      '还没有备份过': 'Never backed up',
+      'R2 / B2 / MinIO 必填；AWS 留空用官方地址': 'Required for R2 / B2 / MinIO; leave empty for AWS',
+      '请输入 Secret Access Key': 'Enter the secret access key',
+      'Path-style 访问（R2 / MinIO / B2 建议开启）': 'Path-style access (recommended for R2 / MinIO / B2)',
+      '例如 https://dav.jianguoyun.com/dav/': 'e.g. https://dav.jianguoyun.com/dav/',
+      '请输入应用密码': 'Enter the app password',
+      '指向 OneDrive / iCloud / 坚果云同步盘或 NAS 挂载目录': 'Point at OneDrive / iCloud / Nutstore sync folder or a NAS mount',
+      '同一个 bucket 里区分不同机器/账号': 'Separate machines/accounts within one bucket',
+      '规则：至少 8 位，必须同时包含大写字母、小写字母、数字和至少一个特殊符号（仅限 @ # $ * - _）；不得使用其它字符。恢复时必须输入同一个口令。': 'Rules: at least 8 characters with upper case, lower case, a digit and one symbol (@ # $ * - _ only); no other characters. The same passphrase is required to restore.',
+      '已保存。点「修改」才会替换；留空不变。': 'Saved. Click Change to replace it; leave empty to keep.',
+      '首次使用请设置口令，恢复时要用同一个。': 'Set a passphrase now; the same one is needed to restore.',
+      '请输入口令': 'Enter the passphrase',
+      '给这个同步配置起个名字，例如「家里的 R2」': 'Name this profile, e.g. \"Home R2\"',
+      '选择哪些内容进入备份。体积与文件数是本机实时统计。': 'Choose what goes into the backup. Sizes and file counts are live from this machine.',
+      '有未保存的修改。测试连接 / 立即备份只作用于已保存的配置。': 'You have unsaved changes. Test / Back up now only act on the saved profile.',
+      '本地模式：把另一台机器的 latest.json 和 snapshots 目录拷到目标目录后，这里会自动列出。目标目录：': 'Local mode: copy the other machine\'s latest.json and snapshots folder into the target directory and they show up here automatically. Target directory:',
+      '只要目标与口令一致，就能读到这台机器以及其他设备推上去的快照。': 'With the same target and passphrase you will see snapshots from this machine and every other device.',
+      '手里是压缩包或零散文件？解压后直接指定 .dshsync 文件（或包含它的目录），不需要摆成目标目录结构。': 'Have an archive or loose files? Unzip and point at the .dshsync file (or a folder containing one) — no need to arrange the target layout.',
+      '点下面选择文件/文件夹，或直接粘贴路径': 'Pick a file/folder below, or paste a path',
+      '恢复会覆盖上表列出的本机文件（覆盖前会自动备份到 backups/ 目录，不删除本机独有的文件）。': 'Restoring overwrites the local files listed above (they are backed up to backups/ first; files only on this machine are never deleted).',
+      '每个配置对应一个云端目标和一套口令。日常切换在页顶下拉框；这里管理名字与删除。': 'Each profile is one cloud target plus one passphrase. Switch with the dropdown; manage names and deletion here.',
+      '配置以密文保存在 ~/.dsh/dsh-sync/config.json；日志在 ~/.dsh/dsh-sync/sync.log；恢复前被覆盖的文件备份在 ~/.dsh/dsh-sync/backups/。': 'Config is stored encrypted at ~/.dsh/dsh-sync/config.json; logs at ~/.dsh/dsh-sync/sync.log; overwritten files are backed up to ~/.dsh/dsh-sync/backups/ before a restore.',
+      '把插件、设置、技能等个人配置加密备份到云端，换电脑后一键恢复。': 'Encrypted backup of your plugins, settings and skills — restore on a new machine in one click.',
+      '当前环境不支持自动复制，请手动记录：{target}': 'This environment cannot copy automatically; note it down: {target}',
+      '复制失败，请手动选择路径：{target}': 'Copy failed; use this path: {target}',
+      '已复制：{target}': 'Copied: {target}',
+      '目标位置没有找到快照：检查目录/前缀，或先在本机备份一次。': 'No snapshots found at the target: check the folder/prefix, or run a backup here first.',
+      '当前配置有未保存的修改。请先点「保存并继续」，或点「放弃修改」后再切换。': 'This profile has unsaved changes. Click Save & continue or Discard changes before switching.',
+      '请先填写名称': 'Enter a name first',
+      '预览的来源已变化，请重新预览后再恢复。': 'The preview source has changed; preview again before restoring.',
+      '本机内容与这份快照一致，无需恢复。': 'This machine already matches the snapshot; nothing to restore.',
+      '预览完成：将改动 {n} 个文件，确认后才会写入。': 'Preview done: {n} file(s) would change; nothing is written until you confirm.',
+      '已选择：{path}': 'Selected: {path}',
+      '读取状态失败：{message}': 'Failed to read status: {message}',
+      '口令不符合规则。{detail}': 'Passphrase does not meet the rules. {detail}',
+      '还缺：{list}': 'Still missing: {list}',
+      '不允许的字符：{list}': 'Disallowed characters: {list}',
+      '「{char}」(U+{code})': '"{char}" (U+{code})',
+      'Host 接口未就绪（HTTP {status}）。通常是 Host 插件没有激活，或 DSH 还没重启：请完全退出 DSH 再打开；仍然报错请查看 ~/.dsh/dsh-sync/sync.log，并确认插件列表里本插件处于“已启用”。': 'Host API not ready (HTTP {status}). Usually the Host plugin is not active or DSH has not been restarted: quit DSH fully and reopen. If it still fails, check ~/.dsh/dsh-sync/sync.log and make sure this plugin is enabled.',
+      '服务返回了非 JSON 响应（HTTP {status}）': 'The service returned a non-JSON response (HTTP {status})',
+      '请求失败（HTTP {status}）': 'Request failed (HTTP {status})',
+      '正在保存配置…': 'Saving…',
+      '已保存到配置「{name}」。': 'Saved to profile "{name}".',
+      '已保存，但还缺少：{list}': 'Saved, but still missing: {list}',
+      '正在连接存储目标…': 'Connecting to the storage target…',
+      '正在采集文件 → 打包加密 → 上传…': 'Collecting files → packing & encrypting → uploading…',
+      '正在打包加密…': 'Packing & encrypting…',
+      '「{name}」内容没有变化，跳过上传。': '"{name}" is unchanged; nothing uploaded.',
+      '备份完成：{n} 个文件，{size}。': 'Backup done: {n} file(s), {size}.',
+      '清理了 {n} 个旧快照。': 'Pruned {n} old snapshot(s).',
+      '正在读取快照并比对本机…': 'Reading snapshot and comparing with this machine…',
+      '正在备份本机现有文件 → 写入快照内容…': 'Backing up existing local files → writing snapshot content…',
+      '已恢复 {n} 个文件，覆盖前备份了 {m} 个文件。': 'Restored {n} file(s); {m} file(s) were backed up first.',
+      ' 请完全退出 DSH 再打开，让配置生效。': ' Quit DSH fully and reopen for the changes to take effect.',
+      '读到 {n} 个快照。': 'Read {n} snapshot(s).',
+      '已切换到配置「{name}」。': 'Switched to profile "{name}".',
+      '已新建配置「{name}」，填写目标与口令后保存。': 'Created profile "{name}"; fill in the target and passphrase, then save.',
+      '已重命名为「{name}」。': 'Renamed to "{name}".',
+      '再点一次「删除」将移除配置「{name}」（不影响云端快照）。': 'Click Delete again to remove profile "{name}" (cloud snapshots are not affected).',
+      '已删除，当前配置为「{name}」。': 'Deleted; the active profile is now "{name}".',
+      '{n} 个文件 · {size}': '{n} file(s) · {size}',
+      '上次备份 {time} · {size}': 'Last backup {time} · {size}',
+      ' · 云端 {time}（{device}）': ' · cloud {time} ({device})',
+      ' · 每 {n} 分钟自动备份': ' · auto-backup every {n} min',
+      '待完善：{n} 项': '{n} item(s) need attention',
+      '有变更（{n} 个文件，{size}）': 'Changed ({n} file(s), {size})',
+      '无法读取：{message}': 'Cannot read: {message}',
+      '每 {n} 分钟': 'every {n} min',
+      '（共 {n} 个）': '({n} total)',
+      '已自动安装 {n} 个插件包（{list}）': 'Auto-installed {n} plugin package(s) ({list})',
+      '恢复后将自动安装 {n} 个插件包（{list}）': 'Will auto-install {n} plugin package(s) ({list})',
+      '已释放 {n} 个：{list}': 'Unpacked {n}: {list}',
+      '将释放 {n} 个：{list}': 'Will unpack {n}: {list}',
+      '保留本机版本 {n} 个：{list}': 'Kept {n} local copy(ies): {list}',
+      '已释放': 'Unpacked',
+      '将释放': 'Will unpack',
+      '{name}（{action}）': '{name} ({action})',
+      '本机内容与这份快照一致': 'This machine matches the snapshot',
+      '恢复完成。': 'Restore finished.',
+      ' 被覆盖文件的备份在 {dir}': ' Backups of overwritten files are in {dir}',
+      '点此复制': 'click to copy',
+      'MCP 连接器（含令牌）': 'MCP connector (contains tokens)',
+      '凭证与 API Key': 'Credentials & API keys',
+      'DSH 配置档案': 'DSH profile',
+      '本地目录插件': 'Local-folder plugins',
+      '机器级补丁': 'Machine-level patch',
+      'DSH 自建技能': 'DSH home skills',
+      '跨工具技能': 'Cross-tool skills',
+      '桌面界面偏好': 'Desktop UI preferences',
+      '技能管理器设置': 'Skill manager settings',
+      '工作区根依赖': 'Workspace root dependencies',
+      '插件代码（node_modules）': 'Plugin code (node_modules)',
+      '附加目录': 'Extra folders',
+      '该模块的文件可能包含 API 密钥或服务器访问令牌。这些内容不会被上传到任何第三方：文件在本机读取后整体加密（scrypt 派生密钥），': 'Files in this module may contain API keys or server access tokens. None of that is uploaded to any third party: files are read locally, encrypted as a whole (scrypt-derived key),',
+      '离开设备的只有密文——插件作者与云端存储都无法解密。凭证文件会在本机按规则剔除设备绑定记录后再入包（剔除过程不出本机）。': 'and only ciphertext ever leaves the device — neither the plugin author nor the cloud storage can decrypt it. Credential files have device-bound records stripped locally before being packed (stripping never leaves this machine).',
+      '恢复时同样只在解密后写回本机。插件本身没有任何遥测或内容上报。请确保口令足够强，并自行保管好口令。': 'On restore, content is written back locally after decryption only. The plugin has no telemetry and reports nothing. Use a strong passphrase and keep it safe.',
+      '{label}（{size}）': '{label} ({size})',
+      ' · 最新': ' · latest',
+      '{device} · 配置「{profile}」': '{device} · profile "{profile}"',
+      '{n} 个': '{n}',
+      '{time} · {device} · {n} 个文件': '{time} · {device} · {n} file(s)',
+      '{verb} {n} 个：{list}': '{verb} {n}: {list}',
+      '已改到 profile，请完全退出 DSH 再打开。': 'The profile changed; quit DSH fully and reopen.',
+      '{name}（{action}）': '{name} ({action})',
+    };
+    /** 翻译：中文源文本作键；en 查表（缺失回退中文），{param} 插值。 */
+    function t(template, params) {
+      const pattern = LANG.current === 'en' ? EN[template] : undefined;
+      const text = pattern ?? template;
+      if (!params) return text;
+      return text.replace(/\{(\w+)\}/g, (match, key) => (key in params ? String(params[key]) : match));
+    }
+
     const RULES = [
-      { text: '至少 8 位', test: (value) => value.length >= 8 },
-      { text: '包含小写字母', test: (value) => /[a-z]/.test(value) },
-      { text: '包含大写字母', test: (value) => /[A-Z]/.test(value) },
-      { text: '包含数字', test: (value) => /[0-9]/.test(value) },
-      { text: '至少 1 个特殊符号（@ # $ * - _）', test: (value) => /[@#$*\-_]/.test(value) },
-      { text: '只能使用字母、数字和 @ # $ * - _', test: (value) => /^[A-Za-z0-9@#$*\-_]*$/.test(value) },
+      { text: () => t('至少 8 位'), test: (value) => value.length >= 8 },
+      { text: () => t('包含小写字母'), test: (value) => /[a-z]/.test(value) },
+      { text: () => t('包含大写字母'), test: (value) => /[A-Z]/.test(value) },
+      { text: () => t('包含数字'), test: (value) => /[0-9]/.test(value) },
+      { text: () => t('至少 1 个特殊符号（@ # $ * - _）'), test: (value) => /[@#$*\-_]/.test(value) },
+      { text: () => t('只能使用字母、数字和 @ # $ * - _'), test: (value) => /^[A-Za-z0-9@#$*\-_]*$/.test(value) },
     ];
 
-    const PRIVACY_NOTICE =
-      '该模块的文件可能包含 API 密钥或服务器访问令牌。这些内容不会被上传到任何第三方：文件在本机读取后整体加密（scrypt 派生密钥），' +
-      '离开设备的只有密文——插件作者与云端存储都无法解密。凭证文件会在本机按规则剔除设备绑定记录后再入包（剔除过程不出本机）。' +
-      '恢复时同样只在解密后写回本机。插件本身没有任何遥测或内容上报。请确保口令足够强，并自行保管好口令。';
+    const PRIVACY_NOTICE = () =>
+      t('该模块的文件可能包含 API 密钥或服务器访问令牌。这些内容不会被上传到任何第三方：文件在本机读取后整体加密（scrypt 派生密钥），') +
+      t('离开设备的只有密文——插件作者与云端存储都无法解密。凭证文件会在本机按规则剔除设备绑定记录后再入包（剔除过程不出本机）。') +
+      t('恢复时同样只在解密后写回本机。插件本身没有任何遥测或内容上报。请确保口令足够强，并自行保管好口令。');
 
     function describeChar(char) {
-      if (char === ' ') return '空格';
-      if (char === '\t') return '制表符';
-      if (char === '\n') return '换行';
+      if (char === ' ') return t('空格');
+      if (char === '\t') return t('制表符');
+      if (char === '\n') return t('换行');
       return `「${char}」(U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')})`;
     }
 
@@ -53,11 +281,11 @@ window.__ModuleLoader__.load({
 
     /** Missing rules plus illegal characters, phrased as the user reads them. */
     function ruleErrors(value) {
-      const missing = RULES.filter((rule) => !rule.text.startsWith('只能使用') && !rule.test(value)).map((rule) => rule.text);
+      const missing = RULES.filter((rule) => !rule.text.startsWith(t('只能使用')) && !rule.test(value)).map((rule) => rule.text);
       const invalid = invalidChars(value);
       const parts = [];
-      if (missing.length > 0) parts.push(`还缺：${missing.join('、')}`);
-      if (invalid.length > 0) parts.push(`不允许的字符：${invalid.map(describeChar).join('、')}`);
+      if (missing.length > 0) parts.push(t('还缺：{list}', { list: missing.join('、') }));
+      if (invalid.length > 0) parts.push(t('不允许的字符：{list}', { list: invalid.map(describeChar).join('、') }));
       return parts;
     }
 
@@ -73,12 +301,12 @@ window.__ModuleLoader__.load({
       } catch {
         if (response.status === 405 || response.status === 404) {
           throw new Error(
-            `Host 接口未就绪（HTTP ${response.status}）。通常是 Host 插件没有激活，或 DSH 还没重启：请完全退出 DSH 再打开；仍然报错请查看 ~/.dsh/dsh-sync/sync.log，并确认插件列表里本插件处于“已启用”。`,
+            t('Host 接口未就绪（HTTP {status}）。通常是 Host 插件没有激活，或 DSH 还没重启：请完全退出 DSH 再打开；仍然报错请查看 ~/.dsh/dsh-sync/sync.log，并确认插件列表里本插件处于“已启用”。', { status: response.status }),
           );
         }
-        throw new Error(`服务返回了非 JSON 响应（HTTP ${response.status}）`);
+        throw new Error(t('服务返回了非 JSON 响应（HTTP {status}）', { status: response.status }));
       }
-      if (!data.ok) throw new Error(data.error?.message ?? `请求失败（HTTP ${response.status}）`);
+      if (!data.ok) throw new Error(data.error?.message ?? t('请求失败（HTTP {status}）', { status: response.status }));
       return data.value;
     }
 
@@ -157,13 +385,13 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'dshsync-inlinerow' },
           h(Text, { value: DOTS, readOnly: true }),
-          h(Button, { onClick: props.onEdit }, '修改'),
+          h(Button, { onClick: props.onEdit }, t('修改')),
         );
       }
       return h(Text, {
         type: 'password',
         value: props.value,
-        placeholder: props.placeholder ?? '请输入',
+        placeholder: props.placeholder ?? t('请输入'),
         onChange: props.onChange,
       });
     }
@@ -206,6 +434,7 @@ window.__ModuleLoader__.load({
       const [naming, setNaming] = useState(null);
       const [confirmDelete, setConfirmDelete] = useState(false);
       const [confirmRestore, setConfirmRestore] = useState(false);
+      const [langTick, setLangTick] = useState(0);
       const [privacyAck, setPrivacyAck] = useState({}); // moduleId -> true
       const [showAllPlan, setShowAllPlan] = useState(false);
       const [dirty, setDirty] = useState(false);
@@ -302,7 +531,7 @@ window.__ModuleLoader__.load({
       }, [loadSnapshots]);
 
       useEffect(() => {
-        refresh().catch((error) => setNotice({ tone: 'err', text: `读取状态失败：${error.message}` }));
+        refresh().catch((error) => setNotice({ tone: 'err', text: t('读取状态失败：{message}', { message: error.message }) }));
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
 
@@ -311,6 +540,17 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (tab === 'restore') loadSnapshots().catch(() => {});
       }, [tab, loadSnapshots]);
+
+      // DSH 切换语言时 <html lang> 变化 → 更新 LANG 并重渲染整个设置页。
+      useEffect(() => {
+        if (typeof MutationObserver !== 'function') return undefined;
+        const observer = new MutationObserver(() => {
+          applyLang();
+          setLangTick((tick) => tick + 1);
+        });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+        return () => observer.disconnect();
+      }, []);
 
       const payload = useMemo(() => {
         const base = {
@@ -349,7 +589,7 @@ window.__ModuleLoader__.load({
       const save = useCallback(async () => {
         if (editing.passphrase && form.passphrase.length > 0) {
           const errors = ruleErrors(form.passphrase);
-          if (errors.length > 0) throw new Error(`口令不符合规则。${errors.join('；')}`);
+          if (errors.length > 0) throw new Error(t('口令不符合规则。{detail}', { detail: errors.join('；') }));
         }
         const value = await call('config.save', payload);
         hydrate(value);
@@ -379,20 +619,20 @@ window.__ModuleLoader__.load({
       );
 
       const onSave = run('save', {
-        stageText: '正在保存配置…',
+        stageText: t('正在保存配置…'),
         task: async () => {
           const value = await save();
           setDirty(false);
           say(
             'save',
             value.profile.problems.length === 0 ? 'ok' : 'warn',
-            value.profile.problems.length === 0 ? `已保存到配置「${value.active}」。` : `已保存，但还缺少：${value.profile.problems.join('；')}`,
+            value.profile.problems.length === 0 ? t('已保存到配置「{name}」。', { name: value.active }) : t('已保存，但还缺少：{list}', { list: value.profile.problems.join('；') }),
           );
         },
       });
 
       const onTest = run('test', {
-        stageText: '正在连接存储目标…',
+        stageText: t('正在连接存储目标…'),
         task: async () => {
           // 显式保存模型：测试/备份只针对已保存的配置，表单草稿需先点「保存」或「保存并继续」。
           const result = await call('test');
@@ -402,16 +642,16 @@ window.__ModuleLoader__.load({
       });
 
       const onPush = run('push', {
-        stageText: '正在采集文件 → 打包加密 → 上传…',
+        stageText: t('正在采集文件 → 打包加密 → 上传…'),
         task: async () => {
-          setStage('正在打包加密…');
+          setStage(t('正在打包加密…'));
           const result = await call('push');
           say(
             'push',
             'ok',
             result.skipped
-              ? `「${result.profile}」内容没有变化，跳过上传。`
-              : `备份完成：${result.stats.files} 个文件，${bytesText(result.bytes)}。${result.pruned > 0 ? `清理了 ${result.pruned} 个旧快照。` : ''}`,
+              ? t('「{name}」内容没有变化，跳过上传。', { name: result.profile })
+              : t('备份完成：{n} 个文件，{size}。', { n: result.stats.files, size: bytesText(result.bytes) }) + (result.pruned > 0 ? t('清理了 {n} 个旧快照。', { n: result.pruned }) : ''),
           );
           await refreshStatus().catch(() => {});
         },
@@ -435,7 +675,7 @@ window.__ModuleLoader__.load({
       };
 
       const onPreview = run('preview', {
-        stageText: '正在读取快照并比对本机…',
+        stageText: t('正在读取快照并比对本机…'),
         task: async () => {
           const result = await call('pull', { dryRun: true, snapshot: selectedSnapshot || undefined });
           setPlanSource('remote');
@@ -444,7 +684,7 @@ window.__ModuleLoader__.load({
           say(
             'preview',
             result.changes === 0 ? 'ok' : 'warn',
-            result.changes === 0 ? '本机内容与这份快照一致，无需恢复。' : `预览完成：将改动 ${result.changes} 个文件，确认后才会写入。`,
+            result.changes === 0 ? t('本机内容与这份快照一致，无需恢复。') : t('预览完成：将改动 {n} 个文件，确认后才会写入。', { n: result.changes }),
           );
           await loadSnapshots().catch(() => {});
         },
@@ -457,7 +697,7 @@ window.__ModuleLoader__.load({
             if (result.path) {
               setFilePath(result.path);
               resetPlan();
-              say(`pick-${pickKind}`, 'ok', `已选择：${result.path}`);
+              say(`pick-${pickKind}`, 'ok', t('已选择：{path}', { path: result.path }));
             } else if (result.message) {
               say(`pick-${pickKind}`, 'warn', result.message);
             }
@@ -465,7 +705,7 @@ window.__ModuleLoader__.load({
         })();
 
       const onPreviewFile = run('previewFile', {
-        stageText: '正在读取快照并比对本机…',
+        stageText: t('正在读取快照并比对本机…'),
         task: async () => {
           const result = await call('pull.file', { path: filePath, dryRun: true });
           setPlanSource('file');
@@ -474,20 +714,20 @@ window.__ModuleLoader__.load({
           say(
             'previewFile',
             result.changes === 0 ? 'ok' : 'warn',
-            result.changes === 0 ? '本机内容与这份快照一致，无需恢复。' : `预览完成：将改动 ${result.changes} 个文件，确认后才会写入。`,
+            result.changes === 0 ? t('本机内容与这份快照一致，无需恢复。') : t('预览完成：将改动 {n} 个文件，确认后才会写入。', { n: result.changes }),
           );
         },
       });
 
       const onApply = run('apply', {
-        stageText: '正在备份本机现有文件 → 写入快照内容…',
+        stageText: t('正在备份本机现有文件 → 写入快照内容…'),
         task: async () => {
           // 预览来源一致性校验：无论哪条路径改了快照选择或文件路径（包括快照列表
           // 刷新后的自动回落），都要重新预览，确认清单与实际落盘内容才可能一致。
           const previewMatches = planSource === 'file' ? plan?.previewOf?.file === filePath : plan?.previewOf?.snapshot === selectedSnapshot;
           if (!plan || !previewMatches) {
             resetPlan();
-            say('apply', 'warn', '预览的来源已变化，请重新预览后再恢复。');
+            say('apply', 'warn', t('预览的来源已变化，请重新预览后再恢复。'));
             return;
           }
           const result =
@@ -499,7 +739,7 @@ window.__ModuleLoader__.load({
           say(
             'apply',
             'ok',
-            `已恢复 ${result.written} 个文件${result.backedUp ? `，覆盖前备份了 ${result.backedUp} 个文件` : ''}。${result.restartRequired ? ' 请完全退出 DSH 再打开，让配置生效。' : ''}`,
+            t('已恢复 {n} 个文件，覆盖前备份了 {m} 个文件。', { n: result.written, m: result.backedUp ?? 0 }) + (result.restartRequired ? t(' 请完全退出 DSH 再打开，让配置生效。') : ''),
           );
           await refreshStatus().catch(() => {});
         },
@@ -512,8 +752,8 @@ window.__ModuleLoader__.load({
             'snapshots',
             list.snapshots.length > 0 ? 'ok' : 'warn',
             list.snapshots.length > 0
-              ? `读到 ${list.snapshots.length} 个快照。`
-              : '目标位置没有找到快照：检查目录/前缀，或先在本机备份一次。',
+              ? t('读到 {n} 个快照。', { n: list.snapshots.length })
+              : t('目标位置没有找到快照：检查目录/前缀，或先在本机备份一次。'),
           );
         },
       });
@@ -524,7 +764,7 @@ window.__ModuleLoader__.load({
         // （「保存并继续」或「放弃修改」后再次切换）。
         if (dirty) {
           if (event) event.target.value = config?.active ?? '';
-          say('select', 'warn', '当前配置有未保存的修改。请先点「保存并继续」，或点「放弃修改」后再切换。');
+          say('select', 'warn', t('当前配置有未保存的修改。请先点「保存并继续」，或点「放弃修改」后再切换。'));
           return;
         }
         run('select', {
@@ -533,7 +773,7 @@ window.__ModuleLoader__.load({
             setStatus((current) => (current ? { ...current, profile: { ...current.profile, name: value.active, names: value.names } } : current));
             hydrate(value);
             setPlan(null);
-            setNotice({ tone: 'ok', text: `已切换到配置「${value.active}」。` });
+            setNotice({ tone: 'ok', text: t('已切换到配置「{name}」。', { name: value.active }) });
             await refresh().catch(() => {});
           },
         })();
@@ -543,15 +783,15 @@ window.__ModuleLoader__.load({
         run('naming', {
           task: async () => {
             const name = (naming?.value ?? '').trim();
-            if (!name) throw new Error('请先填写名称');
+            if (!name) throw new Error(t('请先填写名称'));
             if (naming.mode === 'create') {
               const value = await call('profile.create', { name });
               hydrate(value);
-              setNotice({ tone: 'ok', text: `已新建配置「${value.active}」，填写目标与口令后保存。` });
+              setNotice({ tone: 'ok', text: t('已新建配置「{name}」，填写目标与口令后保存。', { name: value.active }) });
             } else {
               const value = await call('profile.rename', { from: config.active, to: name });
               hydrate(value);
-              setNotice({ tone: 'ok', text: `已重命名为「${value.active}」。` });
+              setNotice({ tone: 'ok', text: t('已重命名为「{name}」。', { name: value.active }) });
             }
             setNaming(null);
             await refresh().catch(() => {});
@@ -563,13 +803,13 @@ window.__ModuleLoader__.load({
           task: async () => {
             if (!confirmDelete) {
               setConfirmDelete(true);
-              say('delete', 'warn', `再点一次「删除」将移除配置「${config.active}」（不影响云端快照）。`);
+              say('delete', 'warn', t('再点一次「删除」将移除配置「{name}」（不影响云端快照）。', { name: config.active }));
               return;
             }
             const value = await call('profile.delete', { name: config.active });
             setConfirmDelete(false);
             hydrate(value);
-            say('delete', 'ok', `已删除，当前配置为「${value.active}」。`);
+            say('delete', 'ok', t('已删除，当前配置为「{name}」。', { name: value.active }));
             await refresh().catch(() => {});
           },
         })();
@@ -584,7 +824,7 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'dshsync-row' },
-              h(Field, { label: 'Endpoint', hint: 'R2 / B2 / MinIO 必填；AWS 留空用官方地址' }, h(Text, { value: form.endpoint, placeholder: 'https://<account>.r2.cloudflarestorage.com', onChange: (v) => set('endpoint', v) })),
+              h(Field, { label: 'Endpoint', hint: t('R2 / B2 / MinIO 必填；AWS 留空用官方地址') }, h(Text, { value: form.endpoint, placeholder: 'https://<account>.r2.cloudflarestorage.com', onChange: (v) => set('endpoint', v) })),
               h(Field, { label: 'Region' }, h(Text, { value: form.region, placeholder: 'auto', onChange: (v) => set('region', v) })),
             ),
             h(Field, { label: 'Bucket' }, h(Text, { value: form.bucket, placeholder: 'dsh-config', onChange: (v) => set('bucket', v) })),
@@ -599,49 +839,49 @@ window.__ModuleLoader__.load({
                   isSet: config?.profile?.target?.s3?.secretSet === true,
                   editing: editing.s3Secret,
                   value: form.secretAccessKey,
-                  placeholder: '请输入 Secret Access Key',
+                  placeholder: t('请输入 Secret Access Key'),
                   onEdit: () => setEditing((current) => ({ ...current, s3Secret: true })),
                   onChange: (v) => set('secretAccessKey', v),
                 }),
               ),
             ),
-            h('label', { className: 'dshsync-check' }, h('input', { type: 'checkbox', checked: form.pathStyle !== false, onChange: (event) => set('pathStyle', event.target.checked) }), 'Path-style 访问（R2 / MinIO / B2 建议开启）'),
+            h('label', { className: 'dshsync-check' }, h('input', { type: 'checkbox', checked: form.pathStyle !== false, onChange: (event) => set('pathStyle', event.target.checked) }), t('Path-style 访问（R2 / MinIO / B2 建议开启）')),
           );
         }
         if (kind === 'webdav') {
           return h(
             React.Fragment,
             null,
-            h(Field, { label: '服务地址', hint: '例如 https://dav.jianguoyun.com/dav/' }, h(Text, { value: form.url, placeholder: 'https://dav.jianguoyun.com/dav/', onChange: (v) => set('url', v) })),
+            h(Field, { label: t('服务地址'), hint: t('例如 https://dav.jianguoyun.com/dav/') }, h(Text, { value: form.url, placeholder: 'https://dav.jianguoyun.com/dav/', onChange: (v) => set('url', v) })),
             h(
               'div',
               { className: 'dshsync-row' },
-              h(Field, { label: '用户名' }, h(Text, { value: form.username, onChange: (v) => set('username', v) })),
+              h(Field, { label: t('用户名') }, h(Text, { value: form.username, onChange: (v) => set('username', v) })),
               h(
                 Field,
-                { label: '密码 / 应用密码' },
+                { label: t('密码 / 应用密码') },
                 h(Secret, {
                   isSet: config?.profile?.target?.webdav?.passwordSet === true,
                   editing: editing.webdavPassword,
                   value: form.password,
-                  placeholder: '请输入应用密码',
+                  placeholder: t('请输入应用密码'),
                   onEdit: () => setEditing((current) => ({ ...current, webdavPassword: true })),
                   onChange: (v) => set('password', v),
                 }),
               ),
             ),
-            h(Field, { label: '基础路径（可选）' }, h(Text, { value: form.basePath, placeholder: '', onChange: (v) => set('basePath', v) })),
+            h(Field, { label: t('基础路径（可选）') }, h(Text, { value: form.basePath, placeholder: '', onChange: (v) => set('basePath', v) })),
           );
         }
-        return h(Field, { label: '同步目录', hint: '指向 OneDrive / iCloud / 坚果云同步盘或 NAS 挂载目录' }, h(Text, { value: form.localPath, placeholder: 'C:\\Users\\you\\OneDrive\\dsh-backup', onChange: (v) => set('localPath', v) }));
+        return h(Field, { label: t('同步目录'), hint: t('指向 OneDrive / iCloud / 坚果云同步盘或 NAS 挂载目录') }, h(Text, { value: form.localPath, placeholder: 'C:\\Users\\you\\OneDrive\\dsh-backup', onChange: (v) => set('localPath', v) }));
       };
 
       const statusDot = (() => {
         const problems = status?.problems ?? [];
-        if (problems.length > 0) return { tone: 'err', text: '未配置完整' };
-        if (status?.local?.changedSinceLastPush) return { tone: 'warn', text: '有变更待备份' };
-        if (status?.lastPush) return { tone: 'ok', text: '已同步' };
-        return { tone: 'warn', text: '尚未备份' };
+        if (problems.length > 0) return { tone: 'err', text: t('未配置完整') };
+        if (status?.local?.changedSinceLastPush) return { tone: 'warn', text: t('有变更待备份') };
+        if (status?.lastPush) return { tone: 'ok', text: t('已同步') };
+        return { tone: 'warn', text: t('尚未备份') };
       })();
 
       const passphraseSet = config?.profile?.passphraseSet === true;
@@ -653,27 +893,27 @@ window.__ModuleLoader__.load({
       const statusHeader = h(
         'section',
         { className: 'dshsync-statusbar' },
-        h('button', { type: 'button', className: 'dshsync-dotbtn', title: '查看状态详情', onClick: () => setTab('advanced') },
+        h('button', { type: 'button', className: 'dshsync-dotbtn', title: t('查看状态详情'), onClick: () => setTab('advanced') },
           h('span', { className: `dshsync-dot ${statusDot.tone}` }),
         ),
         h('span', { className: 'dshsync-statusmain' }, statusDot.text),
         h('span', { className: 'dshsync-statusmeta' },
-          status?.target && status.target.kind !== 'none' ? `${KIND_LABEL[status.target.kind] ?? status.target.kind} · ` : '',
-          status?.lastPush ? `上次备份 ${timeText(status.lastPush.at)} · ${bytesText(status.lastPush.bytes)}` : '还没有备份过',
-          status?.remote?.latest ? ` · 云端 ${timeText(status.remote.latest.createdAt)}（${status.remote.latest.device}）` : '',
-          status?.schedule?.enabled ? ` · 每 ${status.schedule.intervalMinutes} 分钟自动备份` : '',
+          status?.target && status.target.kind !== 'none' ? `${t(KIND_LABEL[status.target.kind] ?? status.target.kind)} · ` : '',
+          status?.lastPush ? t('上次备份 {time} · {size}', { time: timeText(status.lastPush.at), size: bytesText(status.lastPush.bytes) }) : t('还没有备份过'),
+          status?.remote?.latest ? t(' · 云端 {time}（{device}）', { time: timeText(status.remote.latest.createdAt), device: status.remote.latest.device }) : '',
+          status?.schedule?.enabled ? t(' · 每 {n} 分钟自动备份', { n: status.schedule.intervalMinutes }) : '',
         ),
         h('span', { className: 'dshsync-statusspacer' }),
-        problems.length > 0 ? h('button', { type: 'button', className: 'dshsync-linkbtn', onClick: () => setTab('backup') }, `待完善：${problems.length} 项`) : null,
+        problems.length > 0 ? h('button', { type: 'button', className: 'dshsync-linkbtn', onClick: () => setTab('backup') }, t('待完善：{n} 项', { n: problems.length })) : null,
       );
 
       const tabBar = h(
         'nav',
         { className: 'dshsync-tabs', role: 'tablist' },
         [
-          ['backup', '备份'],
-          ['restore', '恢复 / 导入'],
-          ['advanced', '高级'],
+          ['backup', t('备份')],
+          ['restore', t('恢复 / 导入')],
+          ['advanced', t('高级')],
         ].map(([id, labelText]) =>
           h(
             'button',
@@ -690,8 +930,8 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '备份内容'),
-          h('p', { className: 'dshsync-hint' }, '选择哪些内容进入备份。体积与文件数是本机实时统计。'),
+          h('h3', null, t('备份内容')),
+          h('p', { className: 'dshsync-hint' }, t('选择哪些内容进入备份。体积与文件数是本机实时统计。')),
           h(
             'div',
             { className: 'dshsync-modules' },
@@ -712,23 +952,23 @@ window.__ModuleLoader__.load({
                       onChange: () => onToggleModule(module),
                     }),
                     h('span', null, module.label),
-                    module.sensitive ? h('span', { className: 'dshsync-badge' }, '含隐私') : null,
-                    h(Info, { text: module.sensitive ? `${module.hint}。${PRIVACY_NOTICE}` : module.hint }),
+                    module.sensitive ? h('span', { className: 'dshsync-badge' }, t('含隐私')) : null,
+                    h(Info, { text: module.sensitive ? `${module.hint}。${PRIVACY_NOTICE()}` : module.hint }),
                   ),
                   h('span', { className: 'dshsync-modulestats' },
-                    module.present ? `${module.files} 个文件 · ${bytesText(module.bytes)}` : '本机没有此内容',
+                    module.present ? t('{n} 个文件 · {size}', { n: module.files, size: bytesText(module.bytes) }) : t('本机没有此内容'),
                   ),
                 ),
                 asking
                   ? h(
                       'div',
                       { className: 'dshsync-privacy' },
-                      h('p', null, PRIVACY_NOTICE),
+                      h('p', null, PRIVACY_NOTICE()),
                       h(
                         'div',
                         { className: 'dshsync-actions dshsync-actions-tight' },
-                        h(Button, { primary: true, onClick: () => { setPrivacyAck((current) => ({ ...current, [module.id]: true })); applyModuleToggle(module.id, true); } }, '我已了解，启用'),
-                        h(Button, { onClick: () => setPrivacyAck((current) => ({ ...current, [module.id]: false })) }, '取消'),
+                        h(Button, { primary: true, onClick: () => { setPrivacyAck((current) => ({ ...current, [module.id]: true })); applyModuleToggle(module.id, true); } }, t('我已了解，启用')),
+                        h(Button, { onClick: () => setPrivacyAck((current) => ({ ...current, [module.id]: false })) }, t('取消')),
                       ),
                     )
                   : null,
@@ -741,44 +981,44 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { className: 'dshsync-modulerow' },
-                  h('span', { className: 'dshsync-modulelabel' }, h('span', null, extra.label), h(Info, { text: 'include.extraPaths 里配置的附加目录（本页暂不提供编辑，可用对话设置）' })),
-                  h('span', { className: 'dshsync-modulestats' }, extra.present ? `${extra.files} 个文件 · ${bytesText(extra.bytes)}` : '不存在'),
+                  h('span', { className: 'dshsync-modulelabel' }, h('span', null, extra.label), h(Info, { text: t('include.extraPaths 里配置的附加目录（本页暂不提供编辑，可用对话设置）') })),
+                  h('span', { className: 'dshsync-modulestats' }, extra.present ? t('{n} 个文件 · {size}', { n: extra.files, size: bytesText(extra.bytes) }) : t('不存在')),
                 ),
               ),
             ),
           ),
-          h(Row, { label: '加密方式', value: config?.security ?? '读取中…' }),
+          h(Row, { label: t('加密方式'), value: config?.security ?? t('读取中…') }),
         ),
 
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '存储目标'),
+          h('h3', null, t('存储目标')),
           h(
             'div',
             { className: 'dshsync-seg' },
             ['s3', 'webdav', 'local'].map((value) => h('button', { key: value, type: 'button', className: kind === value ? 'on' : '', onClick: () => { setKind(value); setDirty(true); } }, KIND_LABEL[value])),
           ),
           kindFields(),
-          h(Field, { label: '对象前缀', hint: '同一个 bucket 里区分不同机器/账号' }, h(Text, { value: form.prefix, onChange: (v) => set('prefix', v) })),
+          h(Field, { label: t('对象前缀'), hint: t('同一个 bucket 里区分不同机器/账号') }, h(Text, { value: form.prefix, onChange: (v) => set('prefix', v) })),
         ),
 
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '加密口令'),
+          h('h3', null, t('加密口令')),
           h(
             Field,
             {
-              label: '口令',
-              info: '规则：至少 8 位，必须同时包含大写字母、小写字母、数字和至少一个特殊符号（仅限 @ # $ * - _）；不得使用其它字符。恢复时必须输入同一个口令。',
-              hint: passphraseSet ? '已保存。点「修改」才会替换；留空不变。' : '首次使用请设置口令，恢复时要用同一个。',
+              label: t('口令'),
+              info: t('规则：至少 8 位，必须同时包含大写字母、小写字母、数字和至少一个特殊符号（仅限 @ # $ * - _）；不得使用其它字符。恢复时必须输入同一个口令。'),
+              hint: passphraseSet ? t('已保存。点「修改」才会替换；留空不变。') : t('首次使用请设置口令，恢复时要用同一个。'),
             },
             h(Secret, {
               isSet: passphraseSet,
               editing: editing.passphrase,
               value: form.passphrase,
-              placeholder: '请输入口令',
+              placeholder: t('请输入口令'),
               onEdit: () => setEditing((current) => ({ ...current, passphrase: true })),
               onChange: (v) => set('passphrase', v),
             }),
@@ -792,11 +1032,12 @@ window.__ModuleLoader__.load({
                   { className: 'dshsync-rules' },
                   RULES.map((rule) => {
                     const ok = rule.test(form.passphrase);
-                    return h('li', { key: rule.text, className: ok ? 'ok' : 'bad' }, `${ok ? '✓' : '✗'} ${rule.text}`);
+                    const text = rule.text();
+                    return h('li', { key: text, className: ok ? 'ok' : 'bad' }, `${ok ? '✓' : '✗'} ${text}`);
                   }),
                 ),
                 invalidChars(form.passphrase).length > 0
-                  ? h('div', { className: 'dshsync-invalid' }, `不允许的字符：${invalidChars(form.passphrase).map(describeChar).join('、')}`)
+                  ? h('div', { className: 'dshsync-invalid' }, t('不允许的字符：{list}', { list: invalidChars(form.passphrase).map(describeChar).join('、') }))
                   : null,
               )
             : null,
@@ -805,32 +1046,32 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '自动备份'),
-          h('label', { className: 'dshsync-check' }, h('input', { type: 'checkbox', checked: form.scheduleEnabled === true, onChange: (event) => set('scheduleEnabled', event.target.checked) }), '定时自动备份这个配置'),
-          h('div', { className: 'dshsync-inline' }, h('span', { className: 'dshsync-label' }, '间隔'), h(Text, { value: String(form.intervalMinutes ?? 30), onChange: (v) => set('intervalMinutes', v) }), h('span', { className: 'dshsync-label' }, '分钟（内容无变化时不会上传）')),
+          h('h3', null, t('自动备份')),
+          h('label', { className: 'dshsync-check' }, h('input', { type: 'checkbox', checked: form.scheduleEnabled === true, onChange: (event) => set('scheduleEnabled', event.target.checked) }), t('定时自动备份这个配置')),
+          h('div', { className: 'dshsync-inline' }, h('span', { className: 'dshsync-label' }, t('间隔')), h(Text, { value: String(form.intervalMinutes ?? 30), onChange: (v) => set('intervalMinutes', v) }), h('span', { className: 'dshsync-label' }, t('分钟（内容无变化时不会上传）'))),
         ),
 
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '操作'),
+          h('h3', null, t('操作')),
           dirty
             ? h(
                 'div',
                 { className: 'dshsync-dirtybar' },
-                h('span', null, '有未保存的修改。测试连接 / 立即备份只作用于已保存的配置。'),
+                h('span', null, t('有未保存的修改。测试连接 / 立即备份只作用于已保存的配置。')),
                 h('span', { className: 'dshsync-dirtyactions' },
-                  h(Button, { primary: true, onClick: onSave, disabled: Boolean(busy) }, busy === 'save' ? '保存中…' : '保存并继续'),
-                  h(Button, { onClick: () => { refresh().catch(() => {}); }, disabled: Boolean(busy) }, '放弃修改'),
+                  h(Button, { primary: true, onClick: onSave, disabled: Boolean(busy) }, busy === 'save' ? t('保存中…') : t('保存并继续')),
+                  h(Button, { onClick: () => { refresh().catch(() => {}); }, disabled: Boolean(busy) }, t('放弃修改')),
                 ),
               )
             : null,
           h(
             'div',
             { className: 'dshsync-actions' },
-            h(Button, { onClick: onSave, disabled: Boolean(busy) }, busy === 'save' ? '保存中…' : '保存'),
-            h(Button, { onClick: onTest, disabled: Boolean(busy) }, busy === 'test' ? '测试中…' : '测试连接'),
-            h(Button, { primary: true, onClick: onPush, disabled: Boolean(busy) }, busy === 'push' ? '备份中…' : '立即备份'),
+            h(Button, { onClick: onSave, disabled: Boolean(busy) }, busy === 'save' ? t('保存中…') : t('保存')),
+            h(Button, { onClick: onTest, disabled: Boolean(busy) }, busy === 'test' ? t('测试中…') : t('测试连接')),
+            h(Button, { primary: true, onClick: onPush, disabled: Boolean(busy) }, busy === 'push' ? t('备份中…') : t('立即备份')),
           ),
           h(Progress, { stage: busy === 'push' || busy === 'test' || busy === 'save' ? stage : '' }),
           h(Feedback, { feedback: feedback.save }),
@@ -846,7 +1087,7 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '从云端恢复'),
+          h('h3', null, t('从云端恢复')),
           h(
             'p',
             { className: 'dshsync-hint' },
@@ -854,7 +1095,7 @@ window.__ModuleLoader__.load({
               ? h(
                   React.Fragment,
                   null,
-                  '本地模式：把另一台机器的 latest.json 和 snapshots 目录拷到目标目录后，这里会自动列出。目标目录：',
+                  t('本地模式：把另一台机器的 latest.json 和 snapshots 目录拷到目标目录后，这里会自动列出。目标目录：'),
                   h(
                     'button',
                     {
@@ -862,22 +1103,22 @@ window.__ModuleLoader__.load({
                       className: 'dshsync-linkbtn',
                       onClick: () => {
                         const target = `${status?.target?.path ?? ''}/${form.prefix || 'dsh-sync'}`;
-                        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(target).then(() => say('copy', 'ok', `已复制：${target}`)).catch(() => say('copy', 'warn', `复制失败，请手动选择路径：${target}`));
-                        else say('copy', 'warn', `当前环境不支持自动复制，请手动记录：${target}`);
+                        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(target).then(() => say('copy', 'ok', t('已复制：{target}', { target }))).catch(() => say('copy', 'warn', t('复制失败，请手动选择路径：{target}', { target })));
+                        else say('copy', 'warn', t('当前环境不支持自动复制，请手动记录：{target}', { target }));
                       },
                     },
-                    '点此复制',
+                    t('点此复制'),
                   ),
                 )
-              : '只要目标与口令一致，就能读到这台机器以及其他设备推上去的快照。',
+              : t('只要目标与口令一致，就能读到这台机器以及其他设备推上去的快照。'),
           ),
           h(Feedback, { feedback: feedback.copy }),
           snapshots.length === 0
-            ? h('div', { className: 'dshsync-note warn' }, '还没有读到快照。先在「备份」页配置目标与口令并备份一次；或用下面的「从文件导入」。')
+            ? h('div', { className: 'dshsync-note warn' }, t('还没有读到快照。先在「备份」页配置目标与口令并备份一次；或用下面的「从文件导入」。'))
             : h(
                 'label',
                 { className: 'dshsync-field' },
-                h('span', { className: 'dshsync-label' }, '选择要恢复的快照'),
+                h('span', { className: 'dshsync-label' }, t('选择要恢复的快照')),
                 h(
                   'select',
                   {
@@ -892,7 +1133,7 @@ window.__ModuleLoader__.load({
                     h(
                       'option',
                       { key: snapshot.key, value: snapshot.key },
-                      `${snapshot.label || snapshot.name}${snapshot.isLatest ? ' · 最新' : ''}（${snapshot.size}）`,
+                      t('{label}（{size}）', { label: (snapshot.label || snapshot.name) + (snapshot.isLatest ? t(' · 最新') : ''), size: snapshot.size }),
                     ),
                   ),
                 ),
@@ -900,8 +1141,8 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dshsync-actions' },
-            h(Button, { onClick: onRefreshSnapshots, disabled: Boolean(busy) }, busy === 'snapshots' ? '读取中…' : '刷新列表'),
-            h(Button, { primary: true, onClick: onPreview, disabled: Boolean(busy) || !selectedSnapshot }, busy === 'preview' ? '读取中…' : '预览选中的快照'),
+            h(Button, { onClick: onRefreshSnapshots, disabled: Boolean(busy) }, busy === 'snapshots' ? t('读取中…') : t('刷新列表')),
+            h(Button, { primary: true, onClick: onPreview, disabled: Boolean(busy) || !selectedSnapshot }, busy === 'preview' ? t('读取中…') : t('预览选中的快照')),
           ),
           h(Progress, { stage: busy === 'preview' ? stage : '' }),
           h(Feedback, { feedback: feedback.snapshots }),
@@ -911,11 +1152,11 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '从文件导入'),
-          h('p', { className: 'dshsync-hint' }, '手里是压缩包或零散文件？解压后直接指定 .dshsync 文件（或包含它的目录），不需要摆成目标目录结构。'),
+          h('h3', null, t('从文件导入')),
+          h('p', { className: 'dshsync-hint' }, t('手里是压缩包或零散文件？解压后直接指定 .dshsync 文件（或包含它的目录），不需要摆成目标目录结构。')),
           h(Text, {
             value: filePath,
-            placeholder: '点下面选择文件/文件夹，或直接粘贴路径',
+            placeholder: t('点下面选择文件/文件夹，或直接粘贴路径'),
             onChange: (v) => {
               setFilePath(v);
               resetPlan();
@@ -924,9 +1165,9 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dshsync-actions' },
-            h(Button, { onClick: () => onPick('file'), disabled: Boolean(busy) }, busy === 'pick-file' ? '等待选择…' : '选择文件…'),
-            h(Button, { onClick: () => onPick('folder'), disabled: Boolean(busy) }, busy === 'pick-folder' ? '等待选择…' : '选择文件夹…'),
-            h(Button, { primary: true, onClick: onPreviewFile, disabled: Boolean(busy) || !filePath.trim() }, busy === 'previewFile' ? '读取中…' : '预览这个文件'),
+            h(Button, { onClick: () => onPick('file'), disabled: Boolean(busy) }, busy === 'pick-file' ? t('等待选择…') : t('选择文件…')),
+            h(Button, { onClick: () => onPick('folder'), disabled: Boolean(busy) }, busy === 'pick-folder' ? t('等待选择…') : t('选择文件夹…')),
+            h(Button, { primary: true, onClick: onPreviewFile, disabled: Boolean(busy) || !filePath.trim() }, busy === 'previewFile' ? t('读取中…') : t('预览这个文件')),
           ),
           h(Progress, { stage: busy === 'previewFile' ? stage : '' }),
           h(Feedback, { feedback: feedback['pick-file'] }),
@@ -938,28 +1179,28 @@ window.__ModuleLoader__.load({
           ? h(
               'section',
               { className: 'dshsync-card plan' },
-              h('h3', null, plan.dryRun === false ? '恢复结果' : '恢复预览'),
-              h(Row, { label: '快照时间', value: timeText(plan.createdAt) }),
-              h(Row, { label: '来源设备', value: `${plan.device ?? '—'} · 配置「${plan.profileOfSnapshot ?? plan.profile ?? '—'}」` }),
-              h(Row, { label: plan.dryRun === false ? '已写入文件' : '将改动文件', value: `${plan.changes ?? plan.written} 个` }),
+              h('h3', null, plan.dryRun === false ? t('恢复结果') : t('恢复预览')),
+              h(Row, { label: t('快照时间'), value: timeText(plan.createdAt) }),
+              h(Row, { label: t('来源设备'), value: t('{device} · 配置「{profile}」', { device: plan.device ?? '—', profile: plan.profileOfSnapshot ?? plan.profile ?? '—' }) }),
+              h(Row, { label: plan.dryRun === false ? t('已写入文件') : t('将改动文件'), value: t('{n} 个', { n: plan.changes ?? plan.written }) }),
               plan.bundles && plan.bundles.missing && plan.bundles.missing.length > 0
                 ? h(Row, {
-                    label: '插件安装',
+                    label: t('插件安装'),
                     value: plan.dryRun === false
-                      ? `已自动安装 ${plan.bundles.missing.length} 个插件包（${plan.bundles.missing.map((bundle) => bundle.name).join('、')}）`
-                      : `恢复后将自动安装 ${plan.bundles.missing.length} 个插件包（${plan.bundles.missing.map((bundle) => bundle.name).join('、')}）`,
+                      ? t('已自动安装 {n} 个插件包（{list}）', { n: plan.bundles.missing.length, list: plan.bundles.missing.map((bundle) => bundle.name).join('、') })
+                      : t('恢复后将自动安装 {n} 个插件包（{list}）', { n: plan.bundles.missing.length, list: plan.bundles.missing.map((bundle) => bundle.name).join('、') }),
                     tone: plan.dryRun === false ? 'ok' : undefined,
                   })
                 : null,
               plan.localPlugins && plan.localPlugins.some((plugin) => plugin.action !== 'off')
                 ? h(Row, {
-                    label: '本地插件',
+                    label: t('本地插件'),
                     value: [
                       ...(plan.localPlugins.filter((plugin) => plugin.action === 'release').length > 0
-                        ? [`${plan.dryRun === false ? '已释放' : '将释放'} ${plan.localPlugins.filter((plugin) => plugin.action === 'release').length} 个：${plan.localPlugins.filter((plugin) => plugin.action === 'release').map((plugin) => plugin.name).join('、')}`]
+                        ? [plan.localPlugins.filter((plugin) => plugin.action === 'release').length > 0 ? t('{verb} {n} 个：{list}', { verb: plan.dryRun === false ? t('已释放') : t('将释放'), n: plan.localPlugins.filter((plugin) => plugin.action === 'release').length, list: plan.localPlugins.filter((plugin) => plugin.action === 'release').map((plugin) => plugin.name).join('、') }) : '']
                         : []),
                       ...(plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').length > 0
-                        ? [`保留本机版本 ${plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').length} 个：${plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').map((plugin) => plugin.name).join('、')}`]
+                        ? [plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').length > 0 ? t('保留本机版本 {n} 个：{list}', { n: plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').length, list: plan.localPlugins.filter((plugin) => plugin.action === 'keep-local').map((plugin) => plugin.name).join('、') }) : '']
                         : []),
                     ].join('；') || '—',
                     tone: plan.dryRun === false ? 'ok' : undefined,
@@ -969,27 +1210,27 @@ window.__ModuleLoader__.load({
                 ? h(
                     'div',
                     null,
-                    h('ul', { className: 'dshsync-list' }, planItems.map((item) => h('li', { key: `${item.path}-${item.action}` }, `${item.path}（${item.action}）`))),
+                    h('ul', { className: 'dshsync-list' }, planItems.map((item) => h('li', { key: `${item.path}-${item.action}` }, t('{name}（{action}）', { name: item.path, action: item.action })))),
                     (plan.sample ?? []).length > 12
-                      ? h('button', { type: 'button', className: 'dshsync-linkbtn', onClick: () => setShowAllPlan((current) => !current) }, showAllPlan ? '收起' : `展开更多（至多 50 条）`)
+                      ? h('button', { type: 'button', className: 'dshsync-linkbtn', onClick: () => setShowAllPlan((current) => !current) }, showAllPlan ? t('收起') : t('展开更多（至多 50 条）'))
                       : null,
                   )
               : null,
               plan.warnings && plan.warnings.length > 0 ? h('div', { className: 'dshsync-note warn' }, plan.warnings.join('；')) : null,
               plan.dryRun === false
-                ? h('div', { className: 'dshsync-note ok' }, `恢复完成。${plan.restartRequired ? '已改到 profile，请完全退出 DSH 再打开。' : ''}${plan.backupDir ? ` 被覆盖文件的备份在 ${plan.backupDir}` : ''}`)
+                ? h('div', { className: 'dshsync-note ok' }, t('恢复完成。') + (plan.restartRequired ? t('已改到 profile，请完全退出 DSH 再打开。') : '') + (plan.backupDir ? t(' 被覆盖文件的备份在 {dir}', { dir: plan.backupDir }) : ''))
                 : plan.dryRun && plan.changes > 0
                   ? h(
                       React.Fragment,
                       null,
                       confirmRestore
-                        ? h('div', { className: 'dshsync-note warn' }, '恢复会覆盖上表列出的本机文件（覆盖前会自动备份到 backups/ 目录，不删除本机独有的文件）。')
+                        ? h('div', { className: 'dshsync-note warn' }, t('恢复会覆盖上表列出的本机文件（覆盖前会自动备份到 backups/ 目录，不删除本机独有的文件）。'))
                         : null,
                       h(
                         'div',
                         { className: 'dshsync-actions' },
-                        h(Button, { primary: true, danger: confirmRestore, onClick: confirmRestore ? onApply : () => setConfirmRestore(true), disabled: Boolean(busy) }, busy === 'apply' ? '恢复中…' : confirmRestore ? '确认：覆盖这些文件' : '确认恢复到本机'),
-                        h(Button, { onClick: () => { setPlan(null); setConfirmRestore(false); } }, '取消'),
+                        h(Button, { primary: true, danger: confirmRestore, onClick: confirmRestore ? onApply : () => setConfirmRestore(true), disabled: Boolean(busy) }, busy === 'apply' ? t('恢复中…') : confirmRestore ? t('确认：覆盖这些文件') : t('确认恢复到本机')),
+                        h(Button, { onClick: () => { setPlan(null); setConfirmRestore(false); } }, t('取消')),
                       ),
                       h(Progress, { stage: busy === 'apply' ? stage : '' }),
                     )
@@ -1006,8 +1247,8 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '命名配置'),
-          h('p', { className: 'dshsync-hint' }, '每个配置对应一个云端目标和一套口令。日常切换在页顶下拉框；这里管理名字与删除。'),
+          h('h3', null, t('命名配置')),
+          h('p', { className: 'dshsync-hint' }, t('每个配置对应一个云端目标和一套口令。日常切换在页顶下拉框；这里管理名字与删除。')),
           h(
             'div',
             { className: 'dshsync-profilebar' },
@@ -1016,10 +1257,10 @@ window.__ModuleLoader__.load({
               { className: 'dshsync-input dshsync-select', value: config?.active ?? '', onChange: (event) => switchProfile(event.target.value, event) },
               (config?.names ?? []).map((name) => h('option', { key: name, value: name }, name)),
             ),
-            h(Button, { onClick: () => setNaming({ mode: 'create', value: '' }), disabled: Boolean(busy) }, '新建'),
-            h(Button, { onClick: () => setNaming({ mode: 'rename', value: config?.active ?? '' }), disabled: Boolean(busy) }, '重命名'),
-            h(Button, { danger: confirmDelete, onClick: removeProfile, disabled: Boolean(busy) }, confirmDelete ? '确认删除' : '删除'),
-            confirmDelete ? h(Button, { onClick: () => setConfirmDelete(false), disabled: Boolean(busy) }, '取消') : null,
+            h(Button, { onClick: () => setNaming({ mode: 'create', value: '' }), disabled: Boolean(busy) }, t('新建')),
+            h(Button, { onClick: () => setNaming({ mode: 'rename', value: config?.active ?? '' }), disabled: Boolean(busy) }, t('重命名')),
+            h(Button, { danger: confirmDelete, onClick: removeProfile, disabled: Boolean(busy) }, confirmDelete ? t('确认删除') : t('删除')),
+            confirmDelete ? h(Button, { onClick: () => setConfirmDelete(false), disabled: Boolean(busy) }, t('取消')) : null,
           ),
           naming
             ? h(
@@ -1029,15 +1270,15 @@ window.__ModuleLoader__.load({
                   className: 'dshsync-input',
                   value: naming.value,
                   autoFocus: true,
-                  placeholder: naming.mode === 'create' ? '给这个同步配置起个名字，例如「家里的 R2」' : '新的名称',
+                  placeholder: naming.mode === 'create' ? t('给这个同步配置起个名字，例如「家里的 R2」') : t('新的名称'),
                   onChange: (event) => setNaming({ ...naming, value: event.target.value }),
                   onKeyDown: (event) => {
                     if (event.key === 'Enter') confirmNaming();
                     if (event.key === 'Escape') setNaming(null);
                   },
                 }),
-                h(Button, { primary: true, onClick: confirmNaming, disabled: Boolean(busy) }, '确定'),
-                h(Button, { onClick: () => setNaming(null) }, '取消'),
+                h(Button, { primary: true, onClick: confirmNaming, disabled: Boolean(busy) }, t('确定')),
+                h(Button, { onClick: () => setNaming(null) }, t('取消')),
               )
             : null,
           h(Feedback, { feedback: feedback.select }),
@@ -1048,37 +1289,37 @@ window.__ModuleLoader__.load({
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '状态详情'),
-          h(Row, { label: '当前配置', value: `${statusProfileName}${status?.profile?.names?.length > 1 ? `（共 ${status.profile.names.length} 个）` : ''}` }),
+          h('h3', null, t('状态详情')),
+          h(Row, { label: t('当前配置'), value: `${statusProfileName}${status?.profile?.names?.length > 1 ? t('（共 {n} 个）', { n: status.profile.names.length }) : ''}` }),
           h(Row, {
-            label: '备份目标',
+            label: t('备份目标'),
             value: status?.target
-              ? `${KIND_LABEL[status.target.kind] ?? status.target.kind}${status.target.bucket ? ` · ${status.target.bucket}` : ''}${status.target.path ? ` · ${status.target.path}` : ''}${status.target.url ? ` · ${status.target.url}` : ''}`
-              : '读取中…',
+              ? `${t(KIND_LABEL[status.target.kind] ?? status.target.kind)}${status.target.bucket ? ` · ${status.target.bucket}` : ''}${status.target.path ? ` · ${status.target.path}` : ''}${status.target.url ? ` · ${status.target.url}` : ''}`
+              : t('读取中…'),
           }),
           h(Row, {
-            label: '本地变更',
-            value: status?.local?.error ? status.local.error : status?.local?.changedSinceLastPush ? `有变更（${status.local.files} 个文件，${status.local.bytesText}）` : '已是最新',
+            label: t('本地变更'),
+            value: status?.local?.error ? status.local.error : status?.local?.changedSinceLastPush ? t('有变更（{n} 个文件，{size}）', { n: status.local.files, size: status.local.bytesText }) : t('已是最新'),
             tone: status?.local?.changedSinceLastPush ? 'warn' : 'ok',
           }),
-          h(Row, { label: '最近备份', value: status?.lastPush ? `${timeText(status.lastPush.at)} · ${bytesText(status.lastPush.bytes)}` : '尚未备份' }),
+          h(Row, { label: t('最近备份'), value: status?.lastPush ? `${timeText(status.lastPush.at)} · ${bytesText(status.lastPush.bytes)}` : t('尚未备份') }),
           h(Row, {
-            label: '云端最新',
-            value: status?.remote?.error ? `无法读取：${status.remote.error}` : status?.remote?.latest ? `${timeText(status.remote.latest.createdAt)} · ${status.remote.latest.device} · ${status.remote.latest.files} 个文件` : '云端还没有快照',
+            label: t('云端最新'),
+            value: status?.remote?.error ? t('无法读取：{message}', { message: status.remote.error }) : status?.remote?.latest ? t('{time} · {device} · {n} 个文件', { time: timeText(status.remote.latest.createdAt), device: status.remote.latest.device, n: status.remote.latest.files }) : t('云端还没有快照'),
             tone: status?.remote?.error ? 'err' : undefined,
           }),
-          h(Row, { label: '定时同步', value: status?.schedule?.enabled ? `每 ${status.schedule.intervalMinutes} 分钟` : '已关闭' }),
-          problems.length > 0 ? h(Row, { label: '配置待完善', value: problems.join('；'), tone: 'warn' }) : null,
+          h(Row, { label: t('定时同步'), value: status?.schedule?.enabled ? t('每 {n} 分钟', { n: status.schedule.intervalMinutes }) : t('已关闭') }),
+          problems.length > 0 ? h(Row, { label: t('配置待完善'), value: problems.join('；'), tone: 'warn' }) : null,
         ),
 
         h(
           'section',
           { className: 'dshsync-card' },
-          h('h3', null, '数据与日志'),
-          h(Row, { label: 'DSH 目录', value: status?.paths?.home ?? '—' }),
-          h(Row, { label: '配置档案', value: status?.paths?.profile ?? '—' }),
-          h(Row, { label: '插件数据', value: status?.paths?.data ?? '~/.dsh/dsh-sync' }),
-          h('p', { className: 'dshsync-foot' }, '配置以密文保存在 ~/.dsh/dsh-sync/config.json；日志在 ~/.dsh/dsh-sync/sync.log；恢复前被覆盖的文件备份在 ~/.dsh/dsh-sync/backups/。'),
+          h('h3', null, t('数据与日志')),
+          h(Row, { label: t('DSH 目录'), value: status?.paths?.home ?? '—' }),
+          h(Row, { label: t('配置档案'), value: status?.paths?.profile ?? '—' }),
+          h(Row, { label: t('插件数据'), value: status?.paths?.data ?? '~/.dsh/dsh-sync' }),
+          h('p', { className: 'dshsync-foot' }, t('配置以密文保存在 ~/.dsh/dsh-sync/config.json；日志在 ~/.dsh/dsh-sync/sync.log；恢复前被覆盖的文件备份在 ~/.dsh/dsh-sync/backups/。')),
         ),
       );
 
@@ -1086,8 +1327,8 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'dshsync-root' },
         h('style', null, CSS),
-        h('h2', null, 'DSH 同步'),
-        h('p', { className: 'dshsync-sub' }, '把插件、设置、技能等个人配置加密备份到云端，换电脑后一键恢复。'),
+        h('h2', null, t('DSH 同步')),
+        h('p', { className: 'dshsync-sub' }, t('把插件、设置、技能等个人配置加密备份到云端，换电脑后一键恢复。')),
         globalNotice ? h('div', { className: `dshsync-note ${globalNotice.tone} toast` }, globalNotice.text) : null,
         statusHeader,
         tabBar,
@@ -1187,7 +1428,7 @@ window.__ModuleLoader__.load({
       inject: ['slots'],
       apply(ctx) {
         ctx.slots.inject('settings.section', () =>
-          ctx.slots.register({ name: 'settings.section', id: 'dsh-sync', order: 25, label: '同步' }, SyncSettings),
+          ctx.slots.register({ name: 'settings.section', id: 'dsh-sync', order: 25, label: t('同步') }, SyncSettings),
         );
       },
     };

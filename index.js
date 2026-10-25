@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { appendLog, profileState, putProfileState, syncPaths, targetProblems } from './lib/config.js';
+import { t } from './lib/i18n.js';
 import { mountApi } from './lib/api.js';
 import { SyncEngine } from './lib/engine.js';
 import { registerTools } from './lib/tools.js';
@@ -66,7 +67,7 @@ async function installDependencies(ctx, { profileDir }) {
     try {
       child = spawn(command, args, { cwd: profileDir, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (error) {
-      resolve({ ok: false, message: `无法启动包管理器 ${command}: ${error.message}` });
+      resolve({ ok: false, message: t('无法启动包管理器 {command}: {message}', { command, message: error.message }) });
       return;
     }
     let output = '';
@@ -77,18 +78,18 @@ async function installDependencies(ctx, { profileDir }) {
     child.stderr?.on('data', collect);
     const timer = setTimeout(() => {
       child.kill();
-      resolve({ ok: false, message: '插件依赖安装超时（10 分钟）。' });
+      resolve({ ok: false, message: t('插件依赖安装超时（10 分钟）。') });
     }, 10 * 60 * 1000);
     child.on('error', (error) => {
       clearTimeout(timer);
-      resolve({ ok: false, message: `无法启动包管理器 ${command}: ${error.message}` });
+      resolve({ ok: false, message: t('无法启动包管理器 {command}: {message}', { command, message: error.message }) });
     });
     child.on('close', (code) => {
       clearTimeout(timer);
       const tail = output.trim().split('\n').slice(-8).join('\n');
       resolve({
         ok: code === 0,
-        message: code === 0 ? `依赖安装完成（${path.basename(command)} install）。` : `包管理器退出码 ${code}。${tail ? `\n${tail}` : ''}`,
+        message: code === 0 ? t('依赖安装完成（{command} install）。', { command: path.basename(command) }) : t('包管理器退出码 {code}。{tail}', { code, tail: tail ? `\n${tail}` : '' }),
       });
     });
   });
