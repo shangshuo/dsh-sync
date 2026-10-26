@@ -9,7 +9,7 @@
  * buttons that triggered it, so feedback is never outside the viewport.
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-sync',
+  id: '@shangshuo/dsh-sync',
   factory(require) {
     const React = require('react');
     const h = React.createElement;

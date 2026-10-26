@@ -1,5 +1,5 @@
 {
-  "name": "@local/dsh-sync",
+  "name": "@shangshuo/dsh-sync",
   "version": "0.6.3",
   "private": true,
   "type": "module",
@@ -27,5 +27,13 @@
       "platform": "web",
       "immediately": true
     }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shangshuo/dsh-sync.git"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
