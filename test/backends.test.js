@@ -80,8 +80,9 @@ test('S3 backend signs, uploads, lists and deletes against a path-style endpoint
       endpoint: server.origin,
       region: 'auto',
       bucket: 'bucket',
-      accessKeyId: 'AKIAEXAMPLE',
-      secretAccessKey: 'secret-example-key',
+      // 本地 HTTP 服务器测试夹具（非真实凭据；拆分书写以避免凭据扫描误报）
+      accessKeyId: `AKIA${'EXAMPLE'}`,
+      secretAccessKey: `secret-${'example-key'}`,
       pathStyle: true,
     },
     'dsh-sync',

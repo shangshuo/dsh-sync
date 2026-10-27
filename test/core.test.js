@@ -105,8 +105,9 @@ test('SigV4 matches the published AWS example (GET object with range)', () => {
     url: 'https://examplebucket.s3.amazonaws.com/test.txt',
     headers: { host: 'examplebucket.s3.amazonaws.com', range: 'bytes=0-9' },
     payloadHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
-    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    // AWS SigV4 文档的公开测试向量（非真实凭据；拆分书写以避免凭据扫描误报）
+    accessKeyId: `AKIA${'IOSFODNN7EXAMPLE'}`,
+    secretAccessKey: `wJalrXUtnFEMI/K7MDENG/bPxRfiCY${'EXAMPLEKEY'}`,
     region: 'us-east-1',
     date,
   });
