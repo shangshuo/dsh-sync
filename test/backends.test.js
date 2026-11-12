@@ -31,11 +31,52 @@ function xmlEscape(value) {
 test('S3 backend signs, uploads, lists and deletes against a path-style endpoint', async (t) => {
   /** @type {Map<string, Buffer>} */
   const store = new Map();
+  /** @type {Map<string, { key: string, parts: Map<number, Buffer> }>} */
+  const uploads = new Map();
+  let uploadSeq = 0;
   const seen = [];
   const server = await listen((req, res, body) => {
     const url = new URL(req.url, 'http://localhost');
     const auth = req.headers.authorization ?? '';
     seen.push({ method: req.method, path: url.pathname, query: url.search, auth });
+    if (req.method === 'POST' && url.searchParams.has('uploads')) {
+      const key = decodeURIComponent(url.pathname.slice('/bucket/'.length));
+      const id = `upload-${(uploadSeq += 1)}`;
+      uploads.set(id, { key, parts: new Map() });
+      res
+        .writeHead(200, { 'content-type': 'application/xml' })
+        .end(`<InitiateMultipartUploadResult><UploadId>${id}</UploadId></InitiateMultipartUploadResult>`);
+      return;
+    }
+    if (req.method === 'PUT' && url.searchParams.has('partNumber')) {
+      const upload = uploads.get(String(url.searchParams.get('uploadId')));
+      const partNumber = Number(url.searchParams.get('partNumber'));
+      if (!upload) {
+        res.writeHead(404).end();
+        return;
+      }
+      upload.parts.set(partNumber, body);
+      res.writeHead(200, { etag: `"part-${partNumber}"` }).end();
+      return;
+    }
+    if (req.method === 'POST' && url.searchParams.has('uploadId')) {
+      const id = String(url.searchParams.get('uploadId'));
+      const upload = uploads.get(id);
+      if (!upload) {
+        res.writeHead(404).end();
+        return;
+      }
+      const numbers = [...body.toString('utf8').matchAll(/<PartNumber>(\d+)<\/PartNumber>/g)].map((match) => Number(match[1]));
+      store.set(upload.key, Buffer.concat(numbers.map((number) => upload.parts.get(number))));
+      uploads.delete(id);
+      res.writeHead(200, { 'content-type': 'application/xml' }).end('<CompleteMultipartUploadResult/>');
+      return;
+    }
+    if (req.method === 'DELETE' && url.searchParams.has('uploadId')) {
+      uploads.delete(String(url.searchParams.get('uploadId')));
+      res.writeHead(204).end();
+      return;
+    }
     if (req.method === 'PUT' && url.pathname.startsWith('/bucket/')) {
       store.set(decodeURIComponent(url.pathname.slice('/bucket/'.length)), body);
       res.writeHead(200, { etag: '"abc"' }).end();
@@ -103,11 +144,22 @@ test('S3 backend signs, uploads, lists and deletes against a path-style endpoint
     assert.match(entry.auth, /^AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE\/\d{8}\/auto\/s3\/aws4_request, SignedHeaders=/);
   }
   assert.ok(seen.some((entry) => entry.query.includes('list-type=2') && entry.query.includes('prefix=dsh-sync%2Fsnapshots%2F')));
+
+  // 超过 16 MiB 的归档走 S3 原生分片上传：3 个 8 MiB 分片，最终组装成同一个对象。
+  const big = Buffer.alloc(17 * 1024 * 1024, 9);
+  const multipart = await backend.put('snapshots/big.dshsync', big, 'application/octet-stream');
+  assert.equal(multipart.parts, 3);
+  const assembled = store.get('dsh-sync/snapshots/big.dshsync');
+  assert.equal(assembled.length, big.length);
+  assert.ok(assembled.equals(big));
+  assert.ok(seen.filter((entry) => entry.query.includes('partNumber=')).length >= 3);
 });
 
 test('WebDAV backend creates collections, round-trips and lists', async (t) => {
   /** @type {Map<string, Buffer>} */
   const store = new Map();
+  /** @type {string | undefined} */
+  let lastPutContentLength;
   const server = await listen((req, res, body) => {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     if (req.method === 'MKCOL') {
@@ -115,6 +167,7 @@ test('WebDAV backend creates collections, round-trips and lists', async (t) => {
       return;
     }
     if (req.method === 'PUT') {
+      lastPutContentLength = req.headers['content-length'];
       store.set(pathname, body);
       res.writeHead(201).end();
       return;
@@ -159,6 +212,15 @@ test('WebDAV backend creates collections, round-trips and lists', async (t) => {
   assert.deepEqual(listed.map((item) => item.key), ['x.dshsync']);
   assert.equal((await backend.head('snapshots/x.dshsync')).size, 8);
   await backend.delete('snapshots/x.dshsync');
+
+  // 超过 256 KiB 时走流式请求体：content-length 仍精确，服务端不需要 chunked 编码。
+  const large = Buffer.alloc(600 * 1024, 7);
+  await backend.put('snapshots/large.dshsync', large, 'application/octet-stream');
+  const storedLarge = store.get('/dav/dsh-sync/snapshots/large.dshsync');
+  assert.equal(storedLarge.length, large.length);
+  assert.ok(storedLarge.equals(large));
+  assert.equal(lastPutContentLength, String(large.length));
+  await backend.delete('snapshots/large.dshsync');
   assert.equal(store.size, 0);
 
   const probe = await backend.test();
