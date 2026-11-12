@@ -231,12 +231,12 @@ window.__ModuleLoader__.load({
     }
 
     const RULES = [
-      { text: () => t('至少 8 位'), test: (value) => value.length >= 8 },
-      { text: () => t('包含小写字母'), test: (value) => /[a-z]/.test(value) },
-      { text: () => t('包含大写字母'), test: (value) => /[A-Z]/.test(value) },
-      { text: () => t('包含数字'), test: (value) => /[0-9]/.test(value) },
-      { text: () => t('至少 1 个特殊符号（@ # $ * - _）'), test: (value) => /[@#$*\-_]/.test(value) },
-      { text: () => t('只能使用字母、数字和 @ # $ * - _'), test: (value) => /^[A-Za-z0-9@#$*\-_]*$/.test(value) },
+      { id: 'length', text: () => t('至少 8 位'), test: (value) => value.length >= 8 },
+      { id: 'lower', text: () => t('包含小写字母'), test: (value) => /[a-z]/.test(value) },
+      { id: 'upper', text: () => t('包含大写字母'), test: (value) => /[A-Z]/.test(value) },
+      { id: 'digit', text: () => t('包含数字'), test: (value) => /[0-9]/.test(value) },
+      { id: 'symbol', text: () => t('至少 1 个特殊符号（@ # $ * - _）'), test: (value) => /[@#$*\-_]/.test(value) },
+      { id: 'charset', text: () => t('只能使用字母、数字和 @ # $ * - _'), test: (value) => /^[A-Za-z0-9@#$*\-_]*$/.test(value) },
     ];
 
     const PRIVACY_NOTICE = () =>
@@ -264,7 +264,7 @@ window.__ModuleLoader__.load({
 
     /** Missing rules plus illegal characters, phrased as the user reads them. */
     function ruleErrors(value) {
-      const missing = RULES.filter((rule) => !rule.text.startsWith(t('只能使用')) && !rule.test(value)).map((rule) => rule.text);
+      const missing = RULES.filter((rule) => rule.id !== 'charset' && !rule.test(value)).map((rule) => rule.text());
       const invalid = invalidChars(value);
       const parts = [];
       if (missing.length > 0) parts.push(t('还缺：{list}', { list: missing.join('、') }));
@@ -867,7 +867,6 @@ window.__ModuleLoader__.load({
       })();
 
       const passphraseSet = config?.profile?.passphraseSet === true;
-      const passphraseErrors = form.passphrase ? ruleErrors(form.passphrase) : [];
       const problems = status?.problems ?? [];
       const statusProfileName = status?.profile?.name ?? config?.active ?? '';
       const planItems = plan ? (showAllPlan ? plan.sample ?? [] : (plan.sample ?? []).slice(0, 12)) : [];
