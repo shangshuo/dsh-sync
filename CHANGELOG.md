@@ -1,5 +1,11 @@
 # 更新日志
 
+## 0.6.4（未发布）
+
+### 修复
+
+- **设置页输入口令即白屏**：`ruleErrors()` 把规则文案 thunk 当字符串用（`rule.text.startsWith(...)`），而 `RULES[].text` 是 `() => string`；输入第一个字符时 `form.passphrase` 变真值，渲染期调用即抛 `TypeError`，整棵设置页被 React 卸载（无 ErrorBoundary），界面纯空白、无任何提示。改为与 Host 侧 `lib/passphrase.js` 一致的显式 `id` 过滤（`rule.id !== 'charset'`）并正确求值 thunk（`rule.text()`）。顺带删除从未被引用的 `passphraseErrors` 死变量——它让 `ruleErrors()` 每次渲染都执行，正是「输入即崩」而非「保存才崩」的原因。修复后设置页可正常设置/修改口令，保存路径（`client.js:573`）也不再抛同一异常。
+
 ## 0.6.3（2026-10-26）
 
 ### 新增
